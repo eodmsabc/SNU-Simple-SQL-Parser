@@ -1,0 +1,9 @@
+/bin/
+*.jar
+ParseException.java
+SimpleCharStream.java
+SQLParser.java
+SQLParserConstants.java
+SQLParserTokenManager.java
+Token.java
+TokenMgrError.java
