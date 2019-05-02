@@ -1,4 +1,5 @@
 bin/
+db/
 *.jar
 ParseException.java
 SimpleCharStream.java

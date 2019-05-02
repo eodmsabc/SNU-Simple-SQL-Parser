@@ -2,21 +2,30 @@ package SQL;
 
 import java.io.Serializable;
 
-public class DB_Date implements Comparable<DB_Date>, Serializable {
+public class Date implements Comparable<Date>, Serializable {
 
 	private static final long serialVersionUID = 1L;
 
-	public DB_Date(int y, int m, int d) {
+	public Date(String rawDate) {
+		year = Integer.parseInt(rawDate.substring(0, 4));
+		month = Integer.parseInt(rawDate.substring(5, 2));
+		date = Integer.parseInt(rawDate.substring(8, 2));
+	}
+	
+	/*
+	public Date(int y, int m, int d) {
 		year = y;
 		month = m;
 		date = d;
 	}
+	*/
 	
 	int year;
 	int month;
 	int date;
 	
-	public int getIntDate() {
+	public int getValue() {
+		// What about calculating actual date difference
 		return year * 10000 + month * 100 + date;
 	}
 	
@@ -35,17 +44,17 @@ public class DB_Date implements Comparable<DB_Date>, Serializable {
 			return false;
 		}
 		
-		if (!DB_Date.class.isAssignableFrom(obj.getClass())) {
+		if (!Date.class.isAssignableFrom(obj.getClass())) {
 			return false;
 		}
 		
-		final DB_Date other = (DB_Date) obj;
-		return (this.getIntDate() == other.getIntDate());
+		final Date other = (Date) obj;
+		return (this.getValue() == other.getValue());
 	}
 	
 	@Override
-	public int compareTo(DB_Date other) {
-		return this.getIntDate() - other.getIntDate();
+	public int compareTo(Date other) {
+		return this.getValue() - other.getValue();
 	}
 	
 	@Override

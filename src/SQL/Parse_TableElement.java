@@ -20,11 +20,11 @@ public class Parse_TableElement {
 		primary = pr;
 	}
 
-	public Parse_TableElement(ArrayList<String> fo, String ref, ArrayList<String> rKey) {
+	public Parse_TableElement(ArrayList<String> fo, String ref, ArrayList<String> rKeys) {
 		type = ETYPE.FOREIGN;
 		foreign = fo;
 		refTable = ref;
-		refKey = rKey;
+		refKeys = rKeys;
 	}
 
 	public enum ETYPE {
@@ -39,5 +39,5 @@ public class Parse_TableElement {
 	public ArrayList<String> primary;
 	public ArrayList<String> foreign;
 	public String refTable;
-	public ArrayList<String> refKey;
+	public ArrayList<String> refKeys;
 }
