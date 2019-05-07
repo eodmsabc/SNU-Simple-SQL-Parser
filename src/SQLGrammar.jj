@@ -53,106 +53,7 @@ public class SQLParser
       return;
     }
     
-    /* Print appropriate message by q */
-    switch (q.type)
-    {
-      case SyntaxError : 
-        System.out.println("Syntax error");
-        break;
-      case NotImplemented : 
-        System.out.println("Not Implemented");
-        break;
-      
-      // Create Table      case CreateTableSuccess : 
-        System.out.println("\'" + q.identifier + "\' table is created");
-        break;
-      case DuplicateColumnDefError : 
-        System.out.println("Create table has failed: column definition is duplicated");
-        break;
-      case DuplicatePrimaryKeyDefError : 
-        System.out.println("Create table has failed: primary key definition is duplicated");
-        break;
-      case ReferenceTypeError : 
-        System.out.println("Create table has failed: foreign key references wrong type");
-        break;
-      case ReferenceNonPrimaryKeyError : 
-        System.out.println("Create table has failed: foreign key references non primary key column");
-        break;
-      case ReferenceColumnExistenceError : 
-        System.out.println("Create table has failed: foreign key references non existing column");
-        break;
-      case ReferenceTableExistenceError : 
-        System.out.println("Create table has failed: foreign key references non existing table");
-        break;
-      case NonExistingColumnDefError : 
-        System.out.println("Create table has failed: \'" + q.identifier + "\' does not exists in column definition");
-        break;
-      case TableExistenceError : 
-        System.out.println("Create table has failed: table with the same name already exists");
-        break;
-      case CharLengthError : 
-        System.out.println("Char length should be over 0");
-        break;
-        
-      // Drop Table      case DropSuccess : 
-        System.out.println("\'" + q.identifier + "\' table is dropped");
-        break;
-      case DropReferencedTableError : 
-        System.out.println("Drop table has failed: \'" + q.identifier + "\' is referenced by other table");
-        break;
-      case NoSuchTable : 
-        System.out.println("No such table");
-        break;
-        
-      // Show Tables      case ShowTablesNoTable : 
-        System.out.println("There is no table");
-        break;
-      
-      // Insert      case InsertResult : 
-        System.out.println("The row is inserted");
-        break;
-      case InsertDuplicatePrimaryKeyError : 
-        System.out.println("Insertion has failed: Primary key duplication");
-        break;
-      case InsertReferentialIntegrityError : 
-        System.out.println("Insertion has failed: Referential integrity violation");
-        break;
-      case InsertTypeMismatchError : 
-        System.out.println("Insertion has failed: Types are not matched");
-        break;
-      case InsertColumnExistenceError : 
-        System.out.println("Insertion has failed: '" + q.identifier + "' does not exist");
-        break;
-      case InsertColumnNonNullableError : 
-        System.out.println("Insertion has failed: '" + q.identifier + "' is not nullable");
-        break;
-      
-      // Delete      case DeleteResult : 
-        System.out.println(q.count + " row(s) are deleted");
-        break;
-      case DeleteReferentialIntegrityPassed : 
-        System.out.println(q.count + " row(s) are not deleted due to referential integrity");
-        break;
-      
-      // Select      case SelectTableExistenceError : 
-        System.out.println("Selection has failed: '" + q.identifier + "' does not exist");
-        break;
-      case SelectColumnResolveError : 
-        System.out.println("Selection has failed: fail to resolve '" + q.identifier + "'");
-        break;
-      // Where      case WhereIncomparableError : 
-        System.out.println("Where clause try to compare incomparable values");
-        break;
-      case WhereTableNotSpecified : 
-        System.out.println("Where clause try to reference tables which are not specified");
-        break;
-      case WhereColumnNotExist : 
-        System.out.println("Where clause try to reference non existing column");
-        break;
-      case WhereAmbiguousReference : 
-        System.out.println("Where clause contains ambiguous reference");
-        break;
-    }
+    System.out.println(q);
     System.out.print(PROMPT);
   }
 
@@ -364,6 +265,7 @@ public class SQLParser
     }
 
     ArrayList<String> referingTableList = relation.getReferingTableList();
+    
     for (String refTableName : referingTableList) {
       ArrayList<String> refColList = relation.getTableReferingColumns(refTableName);
       ArrayList<ValueCompare> filteredVC = ValueCompare.vcColumnFilter(vcList, refColList);
@@ -382,17 +284,40 @@ public class SQLParser
       }
     }
 
-    relation.insertRecord(vcList);    return new DBMessage();
+    relation.insertRecord(vcList);
+    db_byte_replace(table, db_objSerialize(relation));    return new DBMessage(MsgType.InsertResult);
   }
 
-  // Query process for delete table  public static DBMessage query_delete(String table, Parse_InsertValue insertVal)
+  // Query process for delete table  public static DBMessage query_delete(String table, BooleanExpression where)
   {
-    // TODO    return new DBMessage(MsgType.NotImplemented);
+    DBMessage msg = new DBMessage(MsgType.NotImplemented);
+    // TODO    return msg;
   }
 
-  // Query process for select table  public static DBMessage query_select(String table, Parse_InsertValue insertVal)
+  // Query process for select table  public static DBMessage query_select(Parse_Select input)
   {
-    // TODO    return new DBMessage(MsgType.NotImplemented);
+    // Delete
+    DBMessage msg = new DBMessage(MsgType.NotImplemented);
+
+	msg = db_selectValidCheck(input);
+	if (msg != null) {
+	  return msg;
+	}
+
+	Relation cartesian = db_selectJoin(input.tables);
+	ArrayList<ArrayList<Value>> searchResult = null;
+    
+	try {
+      searchResult = input.boolPredicate.filter(cartesian);
+	}
+	catch (MyException e) {
+	  return e.getDBMessage();
+	}
+
+    ArrayList<Integer> indexList = new ArrayList<Integer>();
+    ArrayList<ArrayList<Value>> selectedResult = db_columnSelect(input.selected, indexList, cartesian, searchResult);
+    db_printResult(input.selected, indexList, cartesian, selectedResult);
+        return null;
   }
 
   // Physically insert new table in key-value pair  private static void db_createTable(String table, Relation rel)
@@ -449,6 +374,159 @@ public class SQLParser
     if (targetRel == null) return;
     targetRel.delReferedTableList(curr);
     db_byte_replace(target, db_objSerialize(targetRel));
+  }
+
+  private static DBMessage db_selectValidCheck(Parse_Select input) {
+    DBMessage msg = null;
+
+    for (Rename r : input.tables) {
+      if (!db_checkTableExist(r.tableName)) {
+        return new DBMessage(MsgType.SelectTableExistenceError, r.tableName);
+      }
+    }
+    
+    msg = input.validCheck();
+    if(msg != null) {
+      return msg;
+    }
+
+    return msg;
+  }
+
+  private static Relation db_selectJoin(ArrayList<Rename> tables) {
+    Relation result = new Relation("--result");
+    Relation rtemp;
+
+    for (Rename r : tables) {
+      rtemp = db_getRelation(r.tableName);
+      result = Relation.join(result, null, rtemp, r.newName);
+    }
+    
+    return result;
+  }
+
+  private static ArrayList<ArrayList<Value>> db_columnSelect(ArrayList<Rename> selectList, ArrayList<Integer> indexList, Relation r, ArrayList<ArrayList<Value>> searchResult) {
+    ArrayList<Attribute> schema = r.getSchema();
+    int schemaSize = schema.size();
+
+    if (selectList == null) {
+      for (int i = 0; i < schemaSize; i++) {
+        indexList.add(i);
+      }
+      return searchResult;
+    }
+    
+    ArrayList<ArrayList<Value>> result = new ArrayList<ArrayList<Value>>();
+
+    String searchPattern;
+    for (Rename rename : selectList) {
+      searchPattern = (rename.tableName==null?"":rename.tableName) + "." + rename.columnName;
+      for (int idx = 0; idx < schema.size(); idx++) {
+        Attribute attr = schema.get(idx); 
+        if (Relation.lastMatch(attr.getName(), searchPattern) >= 0) {
+          indexList.add(idx);
+          break;
+        }
+      }
+    }
+
+    ArrayList<Value> entity;
+    for (ArrayList<Value> rec : searchResult) {
+      entity = new ArrayList<Value>();
+      for (int idx : indexList) {
+        entity.add(rec.get(idx));
+      }
+      result.add(entity);
+    }
+    
+    return result;
+  }
+  
+  private static void db_printResult(ArrayList<Rename> selectList, ArrayList<Integer> idxList, Relation r, ArrayList<ArrayList<Value>> searchResult) {
+    ArrayList<String> titleList = new ArrayList<String>();
+    ArrayList<Attribute> schema = r.getSchema();
+
+    Integer[] length = new Integer[idxList.size()];
+    
+    for (int i = 0; i < idxList.size(); i++) {
+      length[i] = schema.get(idxList.get(i)).getDefaultLength();
+    }
+    
+    if (selectList == null) {
+      for (int i = 0; i < idxList.size(); i++) {
+        titleList.add(schema.get(i).getName());
+        length[i] = db_max(length[i], titleList.get(i).length());
+      }
+    }
+    else {
+      for (int i = 0; i < selectList.size(); i++) {
+        Rename rename = selectList.get(i);
+        if (rename.newName != null) {
+          titleList.add(rename.newName);
+        }
+        else if (rename.tableName != null) {
+          titleList.add(rename.tableName + "." + rename.columnName);
+        }
+        else {
+          titleList.add(rename.columnName);
+        }
+        length[i] = db_max(length[i], titleList.get(i).length());
+      }
+    }
+    
+    int resultSize = searchResult.size();
+    int columnSize = titleList.size();
+    
+    for (int i = 0; i < columnSize; i++) {
+      for (int j = 0; j < resultSize; j++) {
+        length[i] = db_max(length[i], searchResult.get(j).get(i).getLength());
+      }
+    }
+
+    db_realPrint(titleList, length, searchResult);
+  }
+
+  private static void db_realPrint(ArrayList<String> title, Integer[] length, ArrayList<ArrayList<Value>> searchResult) {
+    int columnNum = title.size();
+    ArrayList<String> format = new ArrayList<String>();
+
+    for (int i = 0; i < columnNum; i++) {
+      String f = String.format(" %%-%ds ", length[i]);
+      format.add(f);
+    }
+
+    String border = "+";
+    for (int i = 0; i < columnNum; i++) {
+      for (int j = 0; j < length[i] + 2; j++) {
+        border = border + "-";
+      }
+      border = border + "+";
+    }
+
+    System.out.println(border);
+    
+    // Column Names
+    System.out.print("|");
+    for (int i = 0; i < columnNum; i++) {
+      System.out.printf(format.get(i), title.get(i));
+      System.out.print("|");
+    }
+    System.out.println();
+
+    System.out.println(border);
+
+    // Data
+    
+    for (int j = 0; j < searchResult.size(); j++) {
+      System.out.print("|");
+      for (int i = 0; i < columnNum; i++) {
+        System.out.printf(format.get(i), searchResult.get(j).get(i));
+        System.out.print("|");
+      }
+      System.out.println();
+    }
+
+    System.out.println(border);
   }
 
   // Insert byte data in key-value pair  private static void db_byte_insert(String key, byte [] data)
@@ -530,6 +608,10 @@ public class SQLParser
       e.printStackTrace();
     }
     cursor.close();
+  }
+
+  private static int db_max(int a, int b) {
+    return a > b ? a : b;
   }
 }
 
@@ -672,9 +754,7 @@ DBMessage query() :
   | msg = deleteQuery()
   | msg = showTablesQuery()
   )
-  {
-    return msg;
-  }
+  { return msg; }
 }
 
 /* CREATE TABLE QUREY */
@@ -918,164 +998,233 @@ DBMessage showTablesQuery() :
 
 /* SELECT QUERY */
 DBMessage selectQuery() :
-{}
 {
-  < SELECT > 
-  selectList() 
-  tableExpression() 
+  DBMessage msg;
+  ArrayList<Rename> selected, tables;
+  BooleanExpression boolExpr = null;
+}
+{
+  < SELECT >
+  selected = selectList()
+  tables = fromClause()
+  (
+    boolExpr = whereClause()
+  )?
   < SEMICOLON >
   {
-    return new DBMessage(MsgType.NotImplemented);
+    msg = query_select(new Parse_Select(selected, tables, boolExpr));
+    return msg;
   }
 }
 
-void selectList() :
-{}
+ArrayList<Rename> selectList() :
+{
+  ArrayList<Rename> selected = new ArrayList<Rename>();
+  Rename r;
+}
 {
   < ASTERISK >
+  { return null; }
 |
   (
-    selectedColumn()
+    r = selectedColumn()
+    { selected.add(r); }
     (
       < COMMA > 
-      selectedColumn()
+      r = selectedColumn()
+      { selected.add(r); }
     )*
   )
+  { return selected; }
 }
 
-void selectedColumn() :
-{}
+Rename selectedColumn() :
+{
+  String tName = null;
+  String cName = null;
+  String newName = null;
+}
 {
   (
     /*   * LOOKAHEAD : Warning Suppression : Choice Conflict   *   * Parser should check 2 token before entering '?' statement   * because both tableName() and columnName() are < LEGAL_IDENTIFIER >   */
     LOOKAHEAD(tableName() < PERIOD >)
-    tableName() 
+    tName = tableName() 
     < PERIOD >
   )?
-  columnName()
+  cName = columnName()
   (
     < AS > 
-    columnName()
+    newName = columnName()
   )?
+  { return new Rename(tName, cName, newName); }
 }
 
-void tableExpression() :
-{}
-{
-  fromClause()
-  (
-    whereClause()
-  )?
-}
-
-void fromClause() :
-{}
+ArrayList<Rename> fromClause() :
+{ ArrayList<Rename> tables; }
 {
   < FROM > 
-  tableReferenceList()
+  tables = tableReferenceList()
+  { return tables; }
 }
 
-void tableReferenceList() :
-{}
+ArrayList<Rename> tableReferenceList() :
 {
-  referedTable()
+  ArrayList<Rename> tables = new ArrayList<Rename>();
+  Rename r;
+}
+{
+  r = referedTable()
+  { tables.add(r); }
   (
     < COMMA > 
-    referedTable()
+    r = referedTable()
+    { tables.add(r); }
   )*
+  { return tables; }
 }
 
-void referedTable() :
-{}
+Rename referedTable() :
 {
-  tableName()
+  String tName = null;
+  String newName = null;
+}
+{
+  tName = tableName()
   (
     < AS > 
-    tableName()
+    newName = tableName()
   )?
+  { return new Rename(tName, null, newName); }
 }
 
-void whereClause() :
-{}
+BooleanExpression whereClause() :
+{ BooleanNode b; }
 {
   < WHERE > 
-  booleanValueExpression()
+  b = booleanValueExpression()
+  { return new BooleanExpression(b); }
 }
 
-void booleanValueExpression() :
-{}
+BooleanNode booleanValueExpression() :
 {
-  booleanTerm()
+  BooleanNode b1, b2;
+}
+{
+  b1 = booleanTerm()
   (
     < OR > 
-    booleanTerm()
+    b2 = booleanTerm()
+    { b1 = new BooleanNode('|', b1, b2); }
   )*
+  { return b1; }
 }
 
-void booleanTerm() :
-{}
+BooleanNode booleanTerm() :
 {
-  booleanFactor()
+  BooleanNode b1, b2;
+}
+{
+  b1 = booleanFactor()
   (
     < AND > 
-    booleanFactor()
+    b2 = booleanFactor()
+    { b1 = new BooleanNode('&', b1, b2); }
   )*
+  { return b1; }
 }
 
-void booleanFactor() :
-{}
+BooleanNode booleanFactor() :
+{
+  boolean isNot = false;
+  BooleanNode b;
+}
 {
   (
-  < NOT >
-  )? 
-  booleanTest()
+    < NOT >
+    { isNot = true; }
+  )?
+  b = booleanTest()
+  {
+	if (isNot) {
+	  return new BooleanNode('~', b);
+	}
+	else {
+	  return b;
+	}
+  }
 }
 
-void booleanTest() :
-{}
+BooleanNode booleanTest() :
 {
-  predicate()
-| parenthesizedBooleanExpression()
+  Predicate p;
+  BooleanNode b;
+}
+{
+  p = predicate()
+  { return new BooleanNode(p); }
+| b = parenthesizedBooleanNode()
+  { return b; }
 }
 
-void parenthesizedBooleanExpression() :
-{}
+BooleanNode parenthesizedBooleanNode() :
+{ BooleanNode b; }
 {
   < LEFT_PAREN > 
-  booleanValueExpression() 
+  b = booleanValueExpression() 
   < RIGHT_PAREN >
+  { return b; }
 }
 
-void predicate() :
-{}
+Predicate predicate() :
+{ Predicate p; }
 {
-  /* * LOOKAHEAD : Warning Suppression : Conflict involving two expansions * * Parser should check compOperand() and < COMP_OP > * because both comparisonPredicate() and nullPredicate() can be start with < LEGAL_IDENTIFIER > */
-  LOOKAHEAD(compOperand() < COMP_OP >)
-  comparisonPredicate()
-| nullPredicate()
+
+  (
+   /*
+    * LOOKAHEAD : Warning Suppression : Conflict involving two expansions
+    *
+    * Parser should check compOperand() and < COMP_OP >
+    * because both comparisonPredicate() and nullPredicate() can be start with < LEGAL_IDENTIFIER >
+    */
+    LOOKAHEAD(compOperand() < COMP_OP >)
+    p = comparisonPredicate()
+  | p = nullPredicate()
+  )
+  { return p; }
 }
 
-void comparisonPredicate() :
-{}
+Predicate comparisonPredicate() :
 {
-  compOperand() 
-  < COMP_OP > 
-  compOperand()
+  Token t;
+  ValueCompare vc1, vc2;
+}
+{
+  vc1 = compOperand() 
+  t = < COMP_OP >
+  vc2 = compOperand()
+  {
+    return Predicate.generate(Comparator.convert(t.image), vc1, vc2);
+  }
 }
 
-void compOperand() :
-{}
+ValueCompare compOperand() :
 {
-  comparableValue()
+  Value v;
+  String t = null, c;
+}
+{
+  v = comparableValue()
+  { return new ValueCompare(v); }
 |
   (
     (
-      /*     * LOOKAHEAD : Warning Suppression : Choice Conflict     *     * Parser should check 2 token before entering '?' statement     * because both tableName() and columnName() are < LEGAL_IDENTIFIER >     */
+     /*      * LOOKAHEAD : Warning Suppression : Choice Conflict      *      * Parser should check 2 token before entering '?' statement      * because both tableName() and columnName() are < LEGAL_IDENTIFIER >      */
       LOOKAHEAD(tableName() < PERIOD >)
-      tableName() 
+      t = tableName() 
       < PERIOD >
     )?
-    columnName()
+    c = columnName()
+    {  return new ValueCompare(t, c); }
   )
 }
 
@@ -1087,32 +1236,38 @@ Value comparableValue() :
   id = < INT_VALUE >
   { return new Value(Integer.parseInt(id.image)); }
 | id = < CHAR_STRING >
-  { return new Value(id.image); }
+  { return new Value(id.image.substring(1, id.image.length()-1)); }
 | id = < DATE_VALUE >
   { return new Value(new Date(id.image)); }
 }
 
-void nullPredicate() :
-{}
+Predicate nullPredicate() :
+{
+  String t = null, c;
+  Comparator op;
+}
 {
   (
-    (
-      /*     * LOOKAHEAD : Warning Suppression : Choice Conflict     *     * Parser should check 2 token before entering '?' statement     * because both tableName() and columnName() are < LEGAL_IDENTIFIER >     */
-      LOOKAHEAD(tableName() < PERIOD >)
-      tableName() 
-      < PERIOD >
-    )?
-    columnName() 
-    nullOperation()
-  )
+   /*    * LOOKAHEAD : Warning Suppression : Choice Conflict    *    * Parser should check 2 token before entering '?' statement    * because both tableName() and columnName() are < LEGAL_IDENTIFIER >    */
+    LOOKAHEAD(tableName() < PERIOD >)
+    t = tableName() 
+    < PERIOD >
+  )?
+  c = columnName() 
+  op = nullOperation()
+  { return new Predicate(op, t, c); }
 }
 
-void nullOperation() :
-{}
+Comparator nullOperation() :
+{ boolean isNull = true; }
 {
   < IS > 
-  (< NOT >)? 
+  (
+    < NOT >
+    { isNull = false; }
+  )? 
   < NULL >
+  { return Comparator.convert(isNull); }
 }
 
 /* INSERT QUERY */
@@ -1143,9 +1298,7 @@ Parse_InsertValue insertColumnsAndSource() :
     colList = columnNameList()
   )?
   valList = valueList()
-  {
-    return new Parse_InsertValue(colList, valList);
-  }
+  { return new Parse_InsertValue(colList, valList); }
 }
 
 ArrayList < Value > valueList() :
@@ -1194,15 +1347,20 @@ Value value() :
 
 /* DELETE QUERY */
 DBMessage deleteQuery() :
-{}
+{
+  DBMessage msg;
+  String t;
+  BooleanExpression b = null;
+}
 {
   < DELETE_FROM > 
-  tableName()
+  t = tableName()
   (
-    whereClause()
+    b = whereClause()
   )?
   < SEMICOLON >
   {
-    return new DBMessage(MsgType.NotImplemented);
+    msg = query_delete(t, b);
+    return msg;
   }
 }

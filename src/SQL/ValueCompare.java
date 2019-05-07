@@ -15,40 +15,45 @@ public class ValueCompare {
 		comparator = comp;
 	}
 	
-	/*
-	public ValueCompare(String colName, Value val) {
-		columnName = colName;
-		value = val;
-	}
-	
 	public ValueCompare(Value val) {
 		value = val;
 	}
-	*/
+	
+	public ValueCompare(String t, String c) {
+		tableName = t;
+		columnName = c;
+	}
+	
+	public boolean isConstValue() {
+		return (value != null);
+	}
 	
 	public boolean check(Value base) {
 		int diff = value.compareTo(base);
 		boolean ret = false;
 		
 		switch(comparator) {
-		case EQ:
-			if (diff == 0) ret = true;
-			break;
-		case NEQ:
-			if (diff != 0) ret = true;
-			break;
-			
-		case GTE:
-			if (diff == 0) ret = true;
-		case GT:
-			if (diff > 0) ret = true;
-			break;
-			
-		case LTE:
-			if (diff == 0) ret = true;
-		case LT:
-			if (diff < 0) ret = true;
-			break;
+			case EQ:
+				if (diff == 0) ret = true;
+				break;
+			case NEQ:
+				if (diff != 0) ret = true;
+				break;
+				
+			case GTE:
+				if (diff == 0) ret = true;
+			case GT:
+				if (diff > 0) ret = true;
+				break;
+				
+			case LTE:
+				if (diff == 0) ret = true;
+			case LT:
+				if (diff < 0) ret = true;
+				break;
+				
+			default:
+				return ret;
 		}
 		
 		return ret;

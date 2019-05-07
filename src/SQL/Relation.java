@@ -22,7 +22,7 @@ public class Relation implements Serializable {
 		return tableName;
 	}
 
-	ArrayList<Attribute> getSchema() {
+	public ArrayList<Attribute> getSchema() {
 		return schema;
 	}
 
@@ -63,10 +63,23 @@ public class Relation implements Serializable {
 		return refColList;
 	}
 	
-	public String getColumnNameByNumber(int col) {
-		if (col < 0 || schema.size() <= col) return null;
-		else return schema.get(col).getName();
+	public int getIndexByColumnName(String col) {
+		int size = schema.size();
+		for (int idx = 0; idx < size; idx++) {
+			Attribute attr = schema.get(idx);
+			if (col.equals(attr.getName())) {
+				return idx;
+			}
+		}
+		return -1;
 	}
+	
+	/*
+	public String getColumnNameByIndex(int idx) {
+		if (idx < 0 || schema.size() <= idx) return null;
+		else return schema.get(idx).getName();
+	}
+	*/
 	
 	public DBMessage createSchema(ArrayList<Parse_TableElement> colDefs, ArrayList<String> primaryKeys) {
 		// Column Definition
@@ -88,7 +101,11 @@ public class Relation implements Serializable {
 			}
 			addAttribute(newAttribute);
 		}
-
+		
+		if (primaryKeys == null) {
+			return null;
+		}
+		
 		// Primary Key Constraints
 		for (String col : primaryKeys) {
 			boolean colFound = setPrimary(col);
@@ -160,6 +177,7 @@ public class Relation implements Serializable {
 	public ArrayList<String> getReferingTableList() {
 		ArrayList<String> referingTableList = new ArrayList<String>();
 		for (Attribute attr : schema) {
+			if (!attr.isForeign()) continue;
 			String refTableName = attr.getRefTable();
 			if (!referingTableList.contains(refTableName)) {
 				referingTableList.add(refTableName);
@@ -258,7 +276,6 @@ public class Relation implements Serializable {
 			// TODO DEBUG This code should not be executed
 			System.out.println("This should not be displayed. Insert Primary Search Error");
 		}
-		
 		if (result.size() != 0) {
 			return new DBMessage(MsgType.InsertDuplicatePrimaryKeyError);
 		}
@@ -308,6 +325,11 @@ public class Relation implements Serializable {
 		return null;
 	}
 	
+	public Value getValue(ArrayList<Value> rec, String columnName) {
+		int idx = getIndexByColumnName(columnName);
+		return rec.get(idx);
+	}
+	
 	public static DBMessage referenceCheck(Relation cur, Relation ref, Parse_TableElement elem) {
 		int keySize = elem.foreign.size();
 
@@ -350,142 +372,91 @@ public class Relation implements Serializable {
 		
 		return null;
 	}
-}
-
-class Attribute implements Serializable {
-	private static final long serialVersionUID = 1L;
-
-	public static final String SCHEMA_FORMAT = "%-30s%-20s%-10s%-10s";
-
-	private String name;
-	private DataType dataType;
-	private int charLength;
-	private boolean nullable;
-	private boolean primary;
-	private boolean foreign;
-	private String refTable;
-	private String refColumn;
-
-	public Attribute(String attrName, DataType dataType, boolean nullable) {
-		name = attrName;
-		this.dataType = dataType;
-		this.nullable = nullable;
-		primary = false;
-		foreign = false;
-		refTable = null;
-		refColumn = null;
-	}
-
-	public Attribute(String attrName, DataType dataType, int charlen, boolean nullable) {
-		this(attrName, dataType, nullable);
-		charLength = charlen;
-	}
-
-	public String getName() {
-		return name;
-	}
-
-	public DataType getDataType() {
-		return dataType;
-	}
-
-	public int getCharLength() {
-		return charLength;
-	}
-
-	public boolean isNullable() {
-		return nullable;
-	}
 	
-	public boolean isPrimary() {
-		return primary;
-	}
-	
-	public void setPrimary() {
-		primary = true;
-		nullable = false;
-	}
-
-	public boolean isForeign() {
-		return foreign;
-	}
-	
-	public void setForeign(String refTable, String refCol) {
-		foreign = true;
-		this.refTable = refTable;
-		this.refColumn = refCol;
-	}
-	
-	public String getRefTable() {
-		return refTable;
-	}
-
-	public String getRefColumn() {
-		return refColumn;
-	}
-
-	
-	@Override
-	public String toString() {
-		String type = null;
-		switch (dataType) {
-		case TYPE_INT:
-			type = "int";
-			break;
-		case TYPE_CHAR:
-			type = "char(" + charLength + ")";
-			break;
-		case TYPE_DATE:
-			type = "date";
-			break;
+	public static int lastMatch(String orig, String pattern) {
+		int idx = orig.indexOf(pattern);
+		
+		if (idx < 0) return -1;
+		
+		if (orig.substring(idx).equals(pattern)) {
+			return idx;
 		}
-
-		String key = "";
-		if (primary && foreign) {
-			key = "PRI/FOR";
-		} else if (primary) {
-			key = "PRI";
-		} else if (foreign) {
-			key = "FOR";
+		else {
+			return -1;
 		}
-
-		return String.format(SCHEMA_FORMAT, name, type, (nullable ? "Y" : "N"), key);
 	}
-
-	public DBMessage typeCheck(Value val) {
-		if (val.isNull()) {
-			if (!nullable) {
-				return new DBMessage(MsgType.InsertColumnNonNullableError, name);
+	
+	public static Relation join(Relation r1, Relation r2) {
+		return Relation.join(r1, r1.getTableName(), r2, r2.getTableName());
+	}
+	public static Relation join(Relation r1, String newTable1, Relation r2) {
+		return Relation.join(r1, newTable1, r2, r2.getTableName());
+	}
+	public static Relation join(Relation r1, Relation r2, String newTable2) {
+		return Relation.join(r1, r1.getTableName(), r2, newTable2);
+	}
+	public static Relation join(Relation r1, String newTable1, Relation r2, String newTable2) {
+		
+		Relation result = new Relation("--result");
+		ArrayList<ArrayList<Value>> newRecord = result.getRecords();
+		ArrayList<Attribute> schema = result.getSchema();
+		
+		if (newTable1 == null) {
+			newTable1 = r1.getTableName();
+		}
+		
+		if (newTable2 == null) {
+			newTable2 = r2.getTableName();
+		}
+		
+		// Generate Schema
+		ArrayList<Attribute> schema1 = r1.getSchema();
+		ArrayList<Attribute> schema2 = r2.getSchema();
+		int ssize1 = schema1.size();
+		int ssize2 = schema2.size();
+		String temp;
+		
+		for (int i = 0; i < ssize1; i++) {
+			temp = schema1.get(i).getName();
+			if (r1.getTableName().charAt(0) != '-') {
+				temp = newTable1 + "." + temp;
 			}
-			val.type = dataType;
-			return null;
+			schema.add(schema1.get(i).copyAttribute(temp));
+		}
+		for (int j = 0; j < ssize2; j++) {
+			temp = schema2.get(j).getName();
+			if (r2.getTableName().charAt(0) != '-') {
+				temp = newTable2 + "." + temp;
+			}
+			schema.add(schema2.get(j).copyAttribute(temp));
 		}
 		
-		if (dataType != val.type) {
-			return new DBMessage(MsgType.InsertTypeMismatchError);
+		// Generate Record Table
+		ArrayList<ArrayList<Value>> record1 = r1.getRecords();
+		ArrayList<ArrayList<Value>> record2 = r2.getRecords();
+		int rsize1 = record1.size();
+		int rsize2 = record2.size();
+		
+		ArrayList<Value> newEntity;
+		
+		if (rsize1 == 0) {
+			for (int j = 0; j < rsize2; j++) {
+				newEntity = new ArrayList<Value>();
+				newEntity.addAll(record2.get(j));
+				newRecord.add(newEntity);
+			}
+			return result;
 		}
 		
-		if (dataType == DataType.TYPE_CHAR) {
-			if (val.strVal.length() != charLength) {
-				return new DBMessage(MsgType.InsertTypeMismatchError);
+		for (int i = 0; i < rsize1; i++) {
+			for (int j = 0; j < rsize2; j++) {
+				newEntity = new ArrayList<Value>();
+				newEntity.addAll(record1.get(i));
+				newEntity.addAll(record2.get(j));
+				newRecord.add(newEntity);
 			}
 		}
 		
-		return null;
+		return result;
 	}
-	
-	public static boolean checkTypeMatch(Attribute a, Attribute b) {
-		if (a.getDataType() == b.getDataType()) {
-			if (a.getDataType() == DataType.TYPE_CHAR) {
-				if (a.getCharLength() == b.getCharLength()) {
-					return true;
-				}
-			} else {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
 }
