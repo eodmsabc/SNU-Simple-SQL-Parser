@@ -1,3 +1,10 @@
+/*
+TODO
+Foreign Key class check
+DataManager Class
+DB insert / delete function
+*/
+
 options
 {
   static = true;
@@ -80,50 +87,7 @@ public class SQLParser
     if (myDbEnvironment != null) myDbEnvironment.close();
   }
 
-  // Serialize object  private static < T extends Serializable > byte [] db_objSerialize(T obj)
-  {
-    byte [] data = null;
-    ByteArrayOutputStream byteOut;
-    ObjectOutputStream objOut;
-    
-    try {
-      byteOut = new ByteArrayOutputStream();
-      objOut = new ObjectOutputStream(byteOut);
-      
-      objOut.writeObject(obj);
-      data = byteOut.toByteArray();
-      
-      byteOut.close();
-      objOut.close();
-    }
-    catch (Exception e) {
-      e.printStackTrace();
-    }
-    return data;
-  }
 
-  // Deserialize object  private static Object db_objDeserialize(byte [] data)
-  {
-    Object retobj = null;
-    if (data != null) {
-      ByteArrayInputStream byteIn;
-      ObjectInputStream objIn;
-      
-      try {
-        byteIn = new ByteArrayInputStream(data);
-        objIn = new ObjectInputStream(byteIn);
-        
-        retobj = objIn.readObject();
-        
-        byteIn.close();
-        objIn.close();
-      }
-      catch (Exception e) {
-        e.printStackTrace();
-      }
-    }
-    return retobj;
-  }
 
   // Query process for create table  public static DBMessage query_createTable(String table, ArrayList < Parse_TableElement > elements)
   {
@@ -132,7 +96,7 @@ public class SQLParser
     
     ArrayList < Parse_TableElement > colDefs = new ArrayList < Parse_TableElement > ();
     ArrayList < String > pKeyConstraints = null;
-    ArrayList < Parse_TableElement > fKeyConstraints = new ArrayList < Parse_TableElement > ();
+    ArrayList < ForeignKeyConstraint > fKeyConstraints = new ArrayList < ForeignKeyConstraint > ();
     
     boolean pKeyAppeared = false;
     
@@ -153,14 +117,14 @@ public class SQLParser
           break;
         
         case FOREIGN: 
-          fKeyConstraints.add(elem);
+          fKeyConstraints.add(elem.foreign);
           break;
       }
     }
     
     Relation relation = new Relation(table);
     DBMessage msg = null;
-    msg = relation.createSchema(colDefs, pKeyConstraints);
+    msg = relation.createSchema(colDefs, pKeyConstraints, fKeyConstraints);
     
     if (msg != null) {
       return msg;
@@ -275,8 +239,7 @@ public class SQLParser
 
       msg = refRelation.select(filteredVC, refResult);
       if (msg != null) {
-        // TODO DEBUG This code should not be executed
-        System.out.println("This should not be displayed. Insert Primary Search Error");
+        System.out.println("TODO: This should not be displayed. Insert Primary Search Error");
       }
 
       if (refResult.size() != 1) {
@@ -291,6 +254,25 @@ public class SQLParser
   // Query process for delete table  public static DBMessage query_delete(String table, BooleanExpression where)
   {
     DBMessage msg = new DBMessage(MsgType.NotImplemented);
+
+    Relation relation = db_getRelation(table);
+    if (relation == null) {
+      return new DBMessage(MsgType.NoSuchTable);
+    }
+
+    ArrayList<Attribute> schema = relation.getSchema();
+    
+    ArrayList<ArrayList<Value>> searchResult;
+    
+    try {
+      searchResult = where.filter(relation);
+    }
+    catch (MyException e) {
+      return e.getDBMessage();
+    }
+
+    searchResult;
+    
     // TODO    return msg;
   }
 
@@ -320,11 +302,6 @@ public class SQLParser
         return null;
   }
 
-  // Physically insert new table in key-value pair  private static void db_createTable(String table, Relation rel)
-  {
-    db_byte_insert(table, db_objSerialize(rel));
-  }
-
   // Add to table list  private static void db_insertTableList(String table)
   {
     ArrayList < String > tableList = (ArrayList < String >) db_objDeserialize(db_byte_search(DB_TABLE_LIST));
@@ -347,17 +324,6 @@ public class SQLParser
   {
     ArrayList < String > tableList = (ArrayList < String >) db_objDeserialize(db_byte_search(DB_TABLE_LIST));
     return tableList.contains(table);
-  }
-
-  // Get Relation  private static Relation db_getRelation(String table)
-  {
-    byte [] data = db_byte_search(table);
-    Relation rel = null;
-    if (data != null)
-    {
-      rel = (Relation) db_objDeserialize(data);
-    }
-    return rel;
   }
 
   // Add to reference list  private static void db_addReferenceList(String target, String curr)
@@ -455,7 +421,7 @@ public class SQLParser
     if (selectList == null) {
       for (int i = 0; i < idxList.size(); i++) {
         titleList.add(schema.get(i).getName());
-        length[i] = db_max(length[i], titleList.get(i).length());
+        length[i] = MyCalc.max(length[i], titleList.get(i).length());
       }
     }
     else {
@@ -470,7 +436,7 @@ public class SQLParser
         else {
           titleList.add(rename.columnName);
         }
-        length[i] = db_max(length[i], titleList.get(i).length());
+        length[i] = MyCalc.max(length[i], titleList.get(i).length());
       }
     }
     
@@ -479,7 +445,7 @@ public class SQLParser
     
     for (int i = 0; i < columnSize; i++) {
       for (int j = 0; j < resultSize; j++) {
-        length[i] = db_max(length[i], searchResult.get(j).get(i).getLength());
+        length[i] = MyCalc.max(length[i], searchResult.get(j).get(i).getLength());
       }
     }
 
@@ -527,91 +493,6 @@ public class SQLParser
     }
 
     System.out.println(border);
-  }
-
-  // Insert byte data in key-value pair  private static void db_byte_insert(String key, byte [] data)
-  {
-    Cursor cursor = null;
-    try
-    {
-      cursor = myDatabase.openCursor(null, null);
-      DatabaseEntry db_key = new DatabaseEntry(key.getBytes("UTF-8"));
-      DatabaseEntry db_data = new DatabaseEntry(data);
-      cursor.put(db_key, db_data);
-    }
-    catch (Exception e)
-    {
-      e.printStackTrace();
-    }
-    cursor.close();
-  }
-
-  // Get byte data from key  private static byte [] db_byte_search(String key)
-  {
-    Cursor cursor = null;
-    byte [] value = null;
-    try
-    {
-      cursor = myDatabase.openCursor(null, null);
-      DatabaseEntry db_key = new DatabaseEntry(key.getBytes("UTF-8"));
-      DatabaseEntry db_value = new DatabaseEntry();
-      if (cursor.getSearchKey(db_key, db_value, LockMode.DEFAULT) == OperationStatus.SUCCESS)
-      {
-        value = db_value.getData();
-      }
-    }
-    catch (Exception e)
-    {
-      e.printStackTrace();
-    }
-    cursor.close();
-    return value;
-  }
-
-  // Replace value with new byteData  private static void db_byte_replace(String key, byte [] newData)
-  {
-    Cursor cursor = null;
-    try
-    {
-      cursor = myDatabase.openCursor(null, null);
-      DatabaseEntry db_key = new DatabaseEntry(key.getBytes("UTF-8"));
-      DatabaseEntry db_value = new DatabaseEntry();
-      DatabaseEntry new_value;
-      if (cursor.getSearchKey(db_key, db_value, LockMode.DEFAULT) == OperationStatus.SUCCESS)
-      {
-        new_value = new DatabaseEntry(newData);
-        cursor.putCurrent(new_value);
-      }
-    }
-    catch (Exception e)
-    {
-      e.printStackTrace();
-    }
-    cursor.close();
-  }
-
-  // Delete key-value pair  private static void db_byte_delete(String key)
-  {
-    Cursor cursor = null;
-    try
-    {
-      cursor = myDatabase.openCursor(null, null);
-      DatabaseEntry db_key = new DatabaseEntry(key.getBytes("UTF-8"));
-      DatabaseEntry db_value = new DatabaseEntry();
-      if (cursor.getSearchKey(db_key, db_value, LockMode.DEFAULT) == OperationStatus.SUCCESS)
-      {
-        cursor.delete();
-      }
-    }
-    catch (Exception e)
-    {
-      e.printStackTrace();
-    }
-    cursor.close();
-  }
-
-  private static int db_max(int a, int b) {
-    return a > b ? a : b;
   }
 }
 

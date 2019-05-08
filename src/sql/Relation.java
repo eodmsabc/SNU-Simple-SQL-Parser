@@ -1,7 +1,16 @@
-package SQL;
+package sql;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import com.sleepycat.je.Database;
+import com.sleepycat.je.DatabaseException;
+import com.sleepycat.je.DatabaseConfig;
+import com.sleepycat.je.DatabaseEntry;
+import com.sleepycat.je.Cursor;
+import com.sleepycat.je.LockMode;
+import com.sleepycat.je.OperationStatus;
+import com.sleepycat.je.Environment;
+import com.sleepycat.je.EnvironmentConfig;
 
 public class Relation implements Serializable {
 	private static final long serialVersionUID = 1L;
@@ -10,6 +19,7 @@ public class Relation implements Serializable {
 	private ArrayList<Attribute> schema;
 	private ArrayList<String> referedTableList;
 	private ArrayList<ArrayList<Value>> records;
+	private ArrayList<ForeignKeyConstraint> fkeys;
 
 	public Relation(String tableName) {
 		this.tableName = tableName;
@@ -34,6 +44,10 @@ public class Relation implements Serializable {
 		return records;
 	}
 
+	public ArrayList<ForeignKeyConstraint> getForeignKeyConstraint() {
+		return fkeys;
+	}
+
 	public Attribute getAttribute(String colName) {
 		for (Attribute attr : schema) {
 			if (attr.getName().equals(colName)) {
@@ -50,19 +64,19 @@ public class Relation implements Serializable {
 		}
 		return colList;
 	}
-	
+
 	public ArrayList<String> getTableReferingColumns(String refTable) {
 		ArrayList<String> refColList = new ArrayList<String>();
-		
+
 		for (Attribute attr : schema) {
 			if (refTable.equals(attr.getRefTable())) {
 				refColList.add(attr.getName());
 			}
 		}
-		
+
 		return refColList;
 	}
-	
+
 	public int getIndexByColumnName(String col) {
 		int size = schema.size();
 		for (int idx = 0; idx < size; idx++) {
@@ -73,15 +87,14 @@ public class Relation implements Serializable {
 		}
 		return -1;
 	}
-	
+
 	/*
-	public String getColumnNameByIndex(int idx) {
-		if (idx < 0 || schema.size() <= idx) return null;
-		else return schema.get(idx).getName();
-	}
-	*/
-	
-	public DBMessage createSchema(ArrayList<Parse_TableElement> colDefs, ArrayList<String> primaryKeys) {
+	 * public String getColumnNameByIndex(int idx) { if (idx < 0 || schema.size() <=
+	 * idx) return null; else return schema.get(idx).getName(); }
+	 */
+
+	public DBMessage createSchema(ArrayList<Parse_TableElement> colDefs, ArrayList<String> primaryKeys,
+			ArrayList<ForeignKeyConstraint> fConst) {
 		// Column Definition
 		for (Parse_TableElement elem : colDefs) {
 			// Existence Check
@@ -101,18 +114,19 @@ public class Relation implements Serializable {
 			}
 			addAttribute(newAttribute);
 		}
-		
-		if (primaryKeys == null) {
-			return null;
-		}
-		
+
 		// Primary Key Constraints
-		for (String col : primaryKeys) {
-			boolean colFound = setPrimary(col);
-			if (colFound == false) {
-				return new DBMessage(MsgType.NonExistingColumnDefError, col);
+		if (primaryKeys != null) {
+			for (String col : primaryKeys) {
+				boolean colFound = setPrimary(col);
+				if (colFound == false) {
+					return new DBMessage(MsgType.NonExistingColumnDefError, col);
+				}
 			}
 		}
+
+		// Foreign Key Constraints
+
 		return null;
 	}
 
@@ -122,16 +136,16 @@ public class Relation implements Serializable {
 
 	public ArrayList<String> getPrimaryKeys() {
 		ArrayList<String> primaryKeys = new ArrayList<String>();
-		
+
 		for (Attribute attr : schema) {
 			if (attr.isPrimary()) {
 				primaryKeys.add(attr.getName());
 			}
 		}
-		
+
 		return primaryKeys;
 	}
-	
+
 	private boolean setPrimary(String colName) {
 		for (Attribute attr : schema) {
 			if (colName.equals(attr.getName())) {
@@ -144,16 +158,16 @@ public class Relation implements Serializable {
 
 	public ArrayList<String> getForeignKeys() {
 		ArrayList<String> foreignKeys = new ArrayList<String>();
-		
+
 		for (Attribute attr : schema) {
 			if (attr.isForeign()) {
 				foreignKeys.add(attr.getName());
 			}
 		}
-		
+
 		return foreignKeys;
 	}
-	
+
 	public boolean setForeign(String colName, String refTable, String refCol) {
 		for (Attribute attr : schema) {
 			if (colName.equals(attr.getName())) {
@@ -163,7 +177,7 @@ public class Relation implements Serializable {
 		}
 		return false;
 	}
-	
+
 	public String getRefTable(String foreignKey) {
 		String refTable = null;
 		for (Attribute attr : schema) {
@@ -173,11 +187,12 @@ public class Relation implements Serializable {
 		}
 		return refTable;
 	}
-	
+
 	public ArrayList<String> getReferingTableList() {
 		ArrayList<String> referingTableList = new ArrayList<String>();
 		for (Attribute attr : schema) {
-			if (!attr.isForeign()) continue;
+			if (!attr.isForeign())
+				continue;
 			String refTableName = attr.getRefTable();
 			if (!referingTableList.contains(refTableName)) {
 				referingTableList.add(refTableName);
@@ -185,7 +200,7 @@ public class Relation implements Serializable {
 		}
 		return referingTableList;
 	}
-	
+
 	public void addReferedTableList(String rTable) {
 		if (referedTableList.contains(rTable))
 			return;
@@ -210,31 +225,30 @@ public class Relation implements Serializable {
 			desc += attr.toString() + "\n";
 		}
 		desc += "-------------------------------------------------\n";
-		
+
 		return desc;
 	}
-		
+
 	public DBMessage insertConstraintsCheck(Parse_InsertValue insertVal, ArrayList<ValueCompare> vcList) {
 		DBMessage msg;
 		int size = insertVal.valList.size();
 		int schemaSize = schema.size();
-		
+
 		if (insertVal.colList == null) {
 			if (size != schemaSize) {
 				return new DBMessage(MsgType.InsertTypeMismatchError);
 			}
 			insertVal.colList = getColumnList();
-		}
-		else if (size != insertVal.colList.size()){
+		} else if (size != insertVal.colList.size()) {
 			return new DBMessage(MsgType.InsertTypeMismatchError);
 		}
-		
+
 		// Validate input column names
 		for (int index = 0; index < size; index++) {
 			String colName = insertVal.colList.get(index);
-			
+
 			Attribute attr = getAttribute(colName);
-			
+
 			if (attr == null) {
 				return new DBMessage(MsgType.InsertColumnExistenceError, colName);
 			}
@@ -246,16 +260,17 @@ public class Relation implements Serializable {
 				}
 			}
 		}
-		
+
 		// Construct new value list w/ same order with schema
 		ArrayList<String> colNameList = getColumnList();
 		for (String col : colNameList) {
 			Value val = insertVal.getValue(col);
-			if (val == null) val = new Value();
-			
+			if (val == null)
+				val = new Value();
+
 			vcList.add(new ValueCompare(tableName, col, val, Comparator.EQ));
 		}
-		
+
 		// Check Types
 		for (ValueCompare vc : vcList) {
 			Attribute attr = getAttribute(vc.columnName);
@@ -264,14 +279,14 @@ public class Relation implements Serializable {
 				return msg;
 			}
 		}
-		
+
 		// Check primary key constraints
 		ArrayList<String> primaryKeys = getPrimaryKeys();
 		ArrayList<ValueCompare> primaryValues = ValueCompare.vcColumnFilter(vcList, primaryKeys);
-		
+
 		ArrayList<ArrayList<Value>> result = new ArrayList<ArrayList<Value>>();
 		msg = select(primaryValues, result);
-		
+
 		if (msg != null) {
 			// TODO DEBUG This code should not be executed
 			System.out.println("This should not be displayed. Insert Primary Search Error");
@@ -279,24 +294,24 @@ public class Relation implements Serializable {
 		if (result.size() != 0) {
 			return new DBMessage(MsgType.InsertDuplicatePrimaryKeyError);
 		}
-		
+
 		return null;
 	}
-	
+
 	public void insertRecord(ArrayList<ValueCompare> insertRecord) {
 		ArrayList<Value> newRecord = new ArrayList<Value>();
 		int size = insertRecord.size();
-		
+
 		for (int i = 0; i < size; i++) {
 			Value val = insertRecord.get(i).value;
 			newRecord.add(val);
 		}
 		records.add(newRecord);
 	}
-	
+
 	public DBMessage select(ArrayList<ValueCompare> where, ArrayList<ArrayList<Value>> result) {
 		ArrayList<Integer> colIndexList = new ArrayList<Integer>();
-		
+
 		int size = where.size();
 		for (int i = 0; i < size; i++) {
 			ValueCompare vc = where.get(i);
@@ -308,7 +323,7 @@ public class Relation implements Serializable {
 				colIndexList.add(index);
 			}
 		}
-		
+
 		boolean matched;
 		for (ArrayList<Value> record : records) {
 			for (int i = 0; i < size; i++) {
@@ -321,15 +336,15 @@ public class Relation implements Serializable {
 				}
 			}
 		}
-		
+
 		return null;
 	}
-	
+
 	public Value getValue(ArrayList<Value> rec, String columnName) {
 		int idx = getIndexByColumnName(columnName);
 		return rec.get(idx);
 	}
-	
+
 	public static DBMessage referenceCheck(Relation cur, Relation ref, Parse_TableElement elem) {
 		int keySize = elem.foreign.size();
 
@@ -354,68 +369,70 @@ public class Relation implements Serializable {
 			if (!Attribute.checkTypeMatch(curAttr, refAttr)) {
 				return new DBMessage(MsgType.ReferenceTypeError);
 			}
-			
+
 			cur.setForeign(curCol, ref.getTableName(), refCol);
 		}
-		
+
 		// Check if FK references all primary key set
 		ArrayList<Attribute> refSchema = ref.getSchema();
-		
-		for (Attribute attr : refSchema)
-		{
+
+		for (Attribute attr : refSchema) {
 			if (attr.isPrimary()) {
 				if (!elem.refKeys.contains(attr.getName())) {
 					return new DBMessage(MsgType.ReferenceNonPrimaryKeyError);
 				}
 			}
 		}
-		
+
 		return null;
 	}
-	
+
 	public static int lastMatch(String orig, String pattern) {
 		int idx = orig.indexOf(pattern);
-		
-		if (idx < 0) return -1;
-		
+
+		if (idx < 0)
+			return -1;
+
 		if (orig.substring(idx).equals(pattern)) {
 			return idx;
-		}
-		else {
+		} else {
 			return -1;
 		}
 	}
-	
+
 	public static Relation join(Relation r1, Relation r2) {
 		return Relation.join(r1, r1.getTableName(), r2, r2.getTableName());
 	}
+
 	public static Relation join(Relation r1, String newTable1, Relation r2) {
 		return Relation.join(r1, newTable1, r2, r2.getTableName());
 	}
+
 	public static Relation join(Relation r1, Relation r2, String newTable2) {
 		return Relation.join(r1, r1.getTableName(), r2, newTable2);
 	}
+
 	public static Relation join(Relation r1, String newTable1, Relation r2, String newTable2) {
-		
+
 		Relation result = new Relation("--result");
 		ArrayList<ArrayList<Value>> newRecord = result.getRecords();
 		ArrayList<Attribute> schema = result.getSchema();
-		
+
 		if (newTable1 == null) {
 			newTable1 = r1.getTableName();
 		}
-		
+
 		if (newTable2 == null) {
 			newTable2 = r2.getTableName();
 		}
-		
+
 		// Generate Schema
 		ArrayList<Attribute> schema1 = r1.getSchema();
 		ArrayList<Attribute> schema2 = r2.getSchema();
 		int ssize1 = schema1.size();
 		int ssize2 = schema2.size();
 		String temp;
-		
+
 		for (int i = 0; i < ssize1; i++) {
 			temp = schema1.get(i).getName();
 			if (r1.getTableName().charAt(0) != '-') {
@@ -430,15 +447,15 @@ public class Relation implements Serializable {
 			}
 			schema.add(schema2.get(j).copyAttribute(temp));
 		}
-		
+
 		// Generate Record Table
 		ArrayList<ArrayList<Value>> record1 = r1.getRecords();
 		ArrayList<ArrayList<Value>> record2 = r2.getRecords();
 		int rsize1 = record1.size();
 		int rsize2 = record2.size();
-		
+
 		ArrayList<Value> newEntity;
-		
+
 		if (rsize1 == 0) {
 			for (int j = 0; j < rsize2; j++) {
 				newEntity = new ArrayList<Value>();
@@ -447,7 +464,7 @@ public class Relation implements Serializable {
 			}
 			return result;
 		}
-		
+
 		for (int i = 0; i < rsize1; i++) {
 			for (int j = 0; j < rsize2; j++) {
 				newEntity = new ArrayList<Value>();
@@ -456,7 +473,28 @@ public class Relation implements Serializable {
 				newRecord.add(newEntity);
 			}
 		}
-		
+
 		return result;
+	}
+
+	public static void db_insert(Database db, String table, Relation r) {
+		DataManager.insert(db, table, DataManager.serialize(r));
+	}
+
+	public static void db_replace(Database db, String table, Relation r) {
+		DataManager.replace(db, table, DataManager.serialize(r));
+	}
+
+	public static Relation db_search(Database db, String table) {
+		byte[] data = DataManager.search(db, table);
+		Relation rel = null;
+		if (data != null) {
+			rel = (Relation) DataManager.deserialize(data);
+		}
+		return rel;
+	}
+
+	public static void db_delete(Database db, Relation r) {
+		DataManager.delete(db, r.getTableName());
 	}
 }

@@ -1,4 +1,4 @@
-package SQL;
+package sql;
 
 public enum MsgType {
 	NotImplemented,

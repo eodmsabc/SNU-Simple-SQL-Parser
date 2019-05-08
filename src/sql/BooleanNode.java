@@ -1,4 +1,4 @@
-package SQL;
+package sql;
 
 import java.util.ArrayList;
 
@@ -21,18 +21,18 @@ public class BooleanNode {
 		predicate = p;
 	}
 	
-	public boolean evaluate(ArrayList<Value> rec, ArrayList<Attribute> schema) throws MyException {
-		boolean retval;
+	public int evaluate(ArrayList<Value> rec, ArrayList<Attribute> schema) throws MyException {
+		int retval;
 		try {
 			switch(type) {
 				case B_NOT:
-					retval = b1.evaluate(rec, schema);
+					retval = MyCalc.not(b1.evaluate(rec, schema));
 					break;
 				case B_AND:
-					retval = b1.evaluate(rec, schema) && b2.evaluate(rec, schema);
+					retval = MyCalc.and(b1.evaluate(rec, schema), b2.evaluate(rec, schema));
 					break;
 				case B_OR:
-					retval = b1.evaluate(rec, schema) || b2.evaluate(rec, schema);
+					retval = MyCalc.or(b1.evaluate(rec, schema), b2.evaluate(rec, schema));
 					break;
 				default:
 					retval = predicate.evaluate(rec, schema);

@@ -1,4 +1,4 @@
-package SQL;
+package sql;
 
 import java.util.ArrayList;
 
@@ -22,9 +22,7 @@ public class Parse_TableElement {
 
 	public Parse_TableElement(ArrayList<String> fo, String ref, ArrayList<String> rKeys) {
 		type = ETYPE.FOREIGN;
-		foreign = fo;
-		refTable = ref;
-		refKeys = rKeys;
+		foreign = new ForeignKeyConstraint(fo, ref, rKeys);
 	}
 
 	public enum ETYPE {
@@ -37,7 +35,5 @@ public class Parse_TableElement {
 	public int charlen;
 	public boolean nullable;
 	public ArrayList<String> primary;
-	public ArrayList<String> foreign;
-	public String refTable;
-	public ArrayList<String> refKeys;
+	public ForeignKeyConstraint foreign;
 }

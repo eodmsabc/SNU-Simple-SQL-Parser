@@ -1,4 +1,4 @@
-package SQL;
+package sql;
 
 import java.io.Serializable;
 
@@ -48,7 +48,6 @@ public class Value implements Comparable<Value>, Serializable {
 	}
 	
 	public static boolean comparable(Value v1, Value v2) {
-		// TODO Null 값 질문에 달리는 답에 따라 적절하게 바꿔야 할듯
 		if (v1.isNull() || v2.isNull()) {
 			return true;
 		}

@@ -1,4 +1,4 @@
-package SQL;
+package sql;
 
 import java.util.ArrayList;
 
@@ -52,13 +52,13 @@ public class Predicate {
 		else return t[i] + "."  + c[i];
 	}
 	
-	public boolean evaluate(ArrayList<Value> rec, ArrayList<Attribute> schema) throws MyException {
-		boolean retval = false;
-		boolean isnull = false;
+	public int evaluate(ArrayList<Value> rec, ArrayList<Attribute> schema) throws MyException {
+		int retval = -1;
 		Value[] cp = new Value[2];
 		
 		try {
 			for (int i = 0; i < 2; i++) {
+				if (i == 1 && (op == Comparator.IN || op == Comparator.INN)) break;
 				if (isConst(i)) {
 					cp[i] = v[i];
 				}
@@ -75,32 +75,39 @@ public class Predicate {
 			throw e;
 		}
 		
+		if (op == Comparator.IN) {
+			if (cp[0].isNull()) return 1;
+			else return -1;
+		}
+		else if (op == Comparator.INN) {
+			if (cp[0].isNull()) return -1;
+			else return 1;
+		}
+		
+		if (cp[0].isNull() || cp[1].isNull()) {
+			return 0;
+		}
+		
 		int diff = cp[0].compareTo(cp[1]);
 
 		switch(op) {
-			case IN:
-				isnull = !isnull;
-			case INN:
-				if (cp[0].isNull() == isnull) retval = true;
-				break;
-				
 			case EQ:
-				if (diff == 0) retval = true;
+				if (diff == 0) retval = 1;
 				break;
 			case NEQ:
-				if (diff != 0) retval = true;
+				if (diff != 0) retval = 1;
 				break;
 				
 			case GTE:
-				if (diff == 0) retval = true;
+				if (diff == 0) retval = 1;
 			case GT:
-				if (diff > 0) retval = true;
+				if (diff > 0) retval = 1;
 				break;
 				
 			case LTE:
-				if (diff == 0) retval = true;
-			case LT:
-				if (diff < 0) retval = true;
+				if (diff == 0) retval = 1;
+			default:
+				if (diff < 0) retval = 1;
 				break;
 		}
 		

@@ -1,4 +1,4 @@
-package SQL;
+package sql;
 
 public enum Comparator {
 	EQ, NEQ, GT, GTE, LT, LTE, IN, INN;

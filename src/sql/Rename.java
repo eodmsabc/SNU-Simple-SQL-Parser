@@ -1,4 +1,4 @@
-package SQL;
+package sql;
 
 public class Rename {
 	public String tableName;
