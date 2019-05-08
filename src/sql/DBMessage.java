@@ -26,6 +26,8 @@ public class DBMessage {
 	@Override
 	public String toString() {
 		switch (type) {
+		case NoMessage:
+			return "";
 		case SyntaxError:
 			return "Syntax error";
 

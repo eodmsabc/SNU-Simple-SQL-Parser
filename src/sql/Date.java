@@ -8,8 +8,8 @@ public class Date implements Comparable<Date>, Serializable {
 
 	public Date(String rawDate) {
 		year = Integer.parseInt(rawDate.substring(0, 4));
-		month = Integer.parseInt(rawDate.substring(5, 2));
-		date = Integer.parseInt(rawDate.substring(8, 2));
+		month = Integer.parseInt(rawDate.substring(5, 7));
+		date = Integer.parseInt(rawDate.substring(8, 10));
 	}
 	
 	/*

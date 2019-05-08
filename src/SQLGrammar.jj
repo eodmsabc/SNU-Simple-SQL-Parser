@@ -1,11 +1,3 @@
-/*
-TODO
-Foreign Key class check
-DataManager Class
-DB insert / delete function
-fuckfuck
-*/
-
 options
 {
   static = true;
@@ -25,7 +17,7 @@ import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
-import SQL.*;
+import sql.*;
 
 public class SQLParser
 {
@@ -56,12 +48,9 @@ public class SQLParser
 
   public static void printMessage(DBMessage q)
   {
-    if (q == null) {
-      System.out.print(PROMPT);
-      return;
+    if (q != null && q.type != MsgType.NoMessage) {
+      System.out.println(q);
     }
-    
-    System.out.println(q);
     System.out.print(PROMPT);
   }
 
@@ -75,11 +64,11 @@ public class SQLParser
     dbConfig.setSortedDuplicates(false);
     myDatabase = myDbEnvironment.openDatabase(null, "myDatabase", dbConfig);
     
-    byte [] data = db_byte_search(DB_TABLE_LIST);
+    byte [] data = DataManager.search(myDatabase, DB_TABLE_LIST);
     
     if (data == null) {
       // Create new db table list      ArrayList <String> newTableList = new ArrayList <String> ();
-      db_byte_insert(DB_TABLE_LIST, db_objSerialize(newTableList));
+      DataManager.insert(myDatabase, DB_TABLE_LIST, DataManager.serialize(newTableList));
     }
   }
 
@@ -90,104 +79,46 @@ public class SQLParser
 
 
 
-  // Query process for create table  public static DBMessage query_createTable(String table, ArrayList < Parse_TableElement > elements)
+  // Query process for create table  public static DBMessage query_createTable(String table, ArrayList <Parse_Create> elements)
   {
     // Check if there already exists a table with same name    if (db_checkTableExist(table)) {      return new DBMessage(MsgType.TableExistenceError);
     }
     
-    ArrayList < Parse_TableElement > colDefs = new ArrayList < Parse_TableElement > ();
-    ArrayList < String > pKeyConstraints = null;
-    ArrayList < ForeignKeyConstraint > fKeyConstraints = new ArrayList < ForeignKeyConstraint > ();
-    
-    boolean pKeyAppeared = false;
-    
-    for (Parse_TableElement elem : elements)
-    {
-      switch (elem.type)
-      {
-        case COLDEF: 
-          colDefs.add(elem);
-          break;
-        
-        case PRIMARY: 
-          // Duplicated Primary Key Definition          if (pKeyAppeared) {
-            return new DBMessage(MsgType.DuplicatePrimaryKeyDefError);
-          }
-          pKeyAppeared = true;
-          pKeyConstraints = elem.primary;
-          break;
-        
-        case FOREIGN: 
-          fKeyConstraints.add(elem.foreign);
-          break;
-      }
-    }
-    
     Relation relation = new Relation(table);
     DBMessage msg = null;
-    msg = relation.createSchema(colDefs, pKeyConstraints, fKeyConstraints);
+    msg = relation.createSchema(myDatabase, elements);
     
     if (msg != null) {
       return msg;
     }
     
-    // Foreign Key Constraints
-    Relation foreignRelation;    for (Parse_TableElement elem : fKeyConstraints)
-    {
-      foreignRelation = db_getRelation(elem.refTable);
-      
-      if (foreignRelation == null) {
-        return new DBMessage(MsgType.ReferenceTableExistenceError);
-      }
-
-      // Check the count of reference column
-      int forKeySize = elem.foreign.size();
-      int refKeySize = elem.refKeys.size();
-      if (forKeySize != refKeySize) {
-        return new DBMessage(MsgType.ReferenceTypeError);
-      }
-      
-      msg = Relation.referenceCheck(relation, foreignRelation, elem);
-      
-      if (msg != null) {
-        return msg;
-      }     }        ArrayList<String> foreignKeys = relation.getForeignKeys();
-    for (String fKey : foreignKeys)
-    {
-      String refTable = relation.getRefTable(fKey);
-      db_addReferenceList(refTable, table);
-    }
-    
+    Relation.db_insert(myDatabase, relation);
     db_insertTableList(table);
-    db_createTable(table, relation);
     return new DBMessage(MsgType.CreateTableSuccess, table);
   }
 
   // Query process for drop table  public static DBMessage query_dropTable(String table)
   {
-    Relation relation = db_getRelation(table);
+    Relation relation = Relation.db_search(myDatabase, table);
     
     // Search if table exists    if (relation == null) {       return new DBMessage(MsgType.NoSuchTable);
     }
-    
-    // Check if referenced by other table    if (relation.getRefCount() > 0) {      return new DBMessage(MsgType.DropReferencedTableError, table);
-    }
 
-    ArrayList < String > foreignKeys = relation.getForeignKeys();
-    for (String fKey : foreignKeys)
-    {
-      String refTable = relation.getRefTable(fKey);
-      db_delReferenceList(refTable, table);
+    DBMessage msg;
+    msg = relation.dropCleanUp(myDatabase);
+
+    if (msg != null) {
+      return msg;
     }
     
+    DataManager.delete(myDatabase, table);
     db_removeTableList(table);
-    db_byte_delete(table);
     return new DBMessage(MsgType.DropSuccess, table);
   }
 
   // Query process for desc operation  public static DBMessage query_desc(String table)
   {
-    Relation relation = db_getRelation(table);
+    Relation relation = Relation.db_search(myDatabase, table);
 
     // Check if there is no such table    if (relation == null) {      return new DBMessage(MsgType.NoSuchTable);
     }
@@ -199,7 +130,7 @@ public class SQLParser
 
   // Query process for show tables  public static DBMessage query_showTables()
   {
-    ArrayList < String > tableList = (ArrayList < String >) db_objDeserialize(db_byte_search(DB_TABLE_LIST));
+    ArrayList <String> tableList = db_getTableList();
     // If there is no table in database    if (tableList.size() == 0)
     {
       // Error Message ShowTablesNoTable      return new DBMessage(MsgType.ShowTablesNoTable);
@@ -213,50 +144,32 @@ public class SQLParser
     return new DBMessage();
   }
 
-  // Query process for insert table  public static DBMessage query_insert(String table, Parse_InsertValue insertVal)
+  // Query process for insert table  public static DBMessage query_insert(String table, Parse_Insert insertVal)
   {
-    Relation relation = db_getRelation(table);
-    DBMessage msg;
+    Relation relation = Relation.db_search(myDatabase, table);
     
     if (relation == null) {
       return new DBMessage(MsgType.NoSuchTable);
     }
 
-    ArrayList<ValueCompare> vcList = new ArrayList<ValueCompare>();
-    msg = relation.insertConstraintsCheck(insertVal, vcList);
+    ArrayList<ColValTuple> cvList;
 
-    if (msg != null) {
-      return msg;
+    try { 
+      cvList = relation.insertParse(myDatabase, insertVal);
     }
-
-    ArrayList<String> referingTableList = relation.getReferingTableList();
+    catch (MyException e) {
+      return e.getDBMessage();
+    }
     
-    for (String refTableName : referingTableList) {
-      ArrayList<String> refColList = relation.getTableReferingColumns(refTableName);
-      ArrayList<ValueCompare> filteredVC = ValueCompare.vcColumnFilter(vcList, refColList);
-
-      ArrayList<ArrayList<Value>> refResult = new ArrayList<ArrayList<Value>>();
-      Relation refRelation = db_getRelation(refTableName);
-
-      msg = refRelation.select(filteredVC, refResult);
-      if (msg != null) {
-        System.out.println("TODO: This should not be displayed. Insert Primary Search Error");
-      }
-
-      if (refResult.size() != 1) {
-        return new DBMessage(MsgType.InsertReferentialIntegrityError);
-      }
-    }
-
-    relation.insertRecord(vcList);
-    db_byte_replace(table, db_objSerialize(relation));    return new DBMessage(MsgType.InsertResult);
+    relation.insertRecord(cvList);
+    Relation.db_replace(myDatabase, relation);    return new DBMessage(MsgType.InsertResult);
   }
 
   // Query process for delete table  public static DBMessage query_delete(String table, BooleanExpression where)
   {
     DBMessage msg = new DBMessage(MsgType.NotImplemented);
 
-    Relation relation = db_getRelation(table);
+    Relation relation = Relation.db_search(myDatabase, table);
     if (relation == null) {
       return new DBMessage(MsgType.NoSuchTable);
     }
@@ -271,8 +184,6 @@ public class SQLParser
     catch (MyException e) {
       return e.getDBMessage();
     }
-
-    searchResult;
     
     // TODO    return msg;
   }
@@ -303,44 +214,35 @@ public class SQLParser
         return null;
   }
 
+  // Get Table List
+  private static ArrayList<String> db_getTableList() {
+    byte[] data = DataManager.search(myDatabase, DB_TABLE_LIST);
+    ArrayList<String> tableList = (ArrayList<String>) DataManager.deserialize(data);
+    return tableList;
+  }
+
   // Add to table list  private static void db_insertTableList(String table)
   {
-    ArrayList < String > tableList = (ArrayList < String >) db_objDeserialize(db_byte_search(DB_TABLE_LIST));
+    ArrayList < String > tableList = db_getTableList();
     if (tableList == null) return;
     if (tableList.contains(table)) return;
     tableList.add(table);
-    db_byte_replace(DB_TABLE_LIST, db_objSerialize(tableList));
+    DataManager.replace(myDatabase, DB_TABLE_LIST, DataManager.serialize(tableList));
   }
 
   // Delete from table list  private static void db_removeTableList(String table)
   {
-    ArrayList < String > tableList = (ArrayList < String >) db_objDeserialize(db_byte_search(DB_TABLE_LIST));
+    ArrayList < String > tableList = db_getTableList();
     if (tableList == null) return;
     if (!tableList.contains(table)) return;
     tableList.remove(table);
-    db_byte_replace(DB_TABLE_LIST, db_objSerialize(tableList));
+    DataManager.replace(myDatabase, DB_TABLE_LIST, DataManager.serialize(tableList));
   }
 
   // Check if table name exists  private static boolean db_checkTableExist(String table)
   {
-    ArrayList < String > tableList = (ArrayList < String >) db_objDeserialize(db_byte_search(DB_TABLE_LIST));
+    ArrayList < String > tableList = db_getTableList();
     return tableList.contains(table);
-  }
-
-  // Add to reference list  private static void db_addReferenceList(String target, String curr)
-  {
-    Relation targetRel = db_getRelation(target);
-    if (targetRel == null) return;
-    targetRel.addReferedTableList(curr);
-    db_byte_replace(target, db_objSerialize(targetRel));
-  }
-
-  // Delete from reference list  private static void db_delReferenceList(String target, String curr)
-  {
-    Relation targetRel = db_getRelation(target);
-    if (targetRel == null) return;
-    targetRel.delReferedTableList(curr);
-    db_byte_replace(target, db_objSerialize(targetRel));
   }
 
   private static DBMessage db_selectValidCheck(Parse_Select input) {
@@ -365,7 +267,7 @@ public class SQLParser
     Relation rtemp;
 
     for (Rename r : tables) {
-      rtemp = db_getRelation(r.tableName);
+      rtemp = Relation.db_search(myDatabase, r.tableName);
       result = Relation.join(result, null, rtemp, r.newName);
     }
     
@@ -644,7 +546,7 @@ DBMessage createTableQuery() :
 {
   DBMessage msg;
   String table;
-  ArrayList < Parse_TableElement > schema;
+  ArrayList < Parse_Create > schema;
 }
 {
   < CREATE_TABLE > 
@@ -657,10 +559,10 @@ DBMessage createTableQuery() :
   }
 }
 
-ArrayList < Parse_TableElement > tableElementList() :
+ArrayList <Parse_Create> tableElementList() :
 {
-  ArrayList < Parse_TableElement > tableElementList = new ArrayList < Parse_TableElement > ();
-  Parse_TableElement element;
+  ArrayList < Parse_Create > tableElementList = new ArrayList < Parse_Create > ();
+  Parse_Create element;
 }
 {
   < LEFT_PAREN > 
@@ -681,9 +583,9 @@ ArrayList < Parse_TableElement > tableElementList() :
   }
 }
 
-Parse_TableElement tableElement() :
+Parse_Create tableElement() :
 {
-  Parse_TableElement elem;
+  Parse_Create elem;
 }
 {
   (
@@ -695,9 +597,9 @@ Parse_TableElement tableElement() :
   }
 }
 
-Parse_TableElement columnDefinition() :
+Parse_Create columnDefinition() :
 {
-  Parse_TableElement elem;
+  Parse_Create elem;
   String colName;
   boolean nullable = true;
 }
@@ -718,9 +620,9 @@ Parse_TableElement columnDefinition() :
   }
 }
 
-Parse_TableElement tableConstraintDefinition() :
+Parse_Create tableConstraintDefinition() :
 {
-  Parse_TableElement elem;
+  Parse_Create elem;
 }
 {
   (
@@ -732,7 +634,7 @@ Parse_TableElement tableConstraintDefinition() :
   }
 }
 
-Parse_TableElement primaryKeyConstraint() :
+Parse_Create primaryKeyConstraint() :
 {
   ArrayList < String > colList;
 }
@@ -740,11 +642,11 @@ Parse_TableElement primaryKeyConstraint() :
   < PRIMARY_KEY > 
   colList = columnNameList()
   {
-    return new Parse_TableElement(colList);
+    return new Parse_Create(colList);
   }
 }
 
-Parse_TableElement referentialConstraint() :
+Parse_Create referentialConstraint() :
 {
   String table;
   ArrayList < String > foreignColList;
@@ -757,7 +659,7 @@ Parse_TableElement referentialConstraint() :
   table = tableName() 
   refColList = columnNameList()
   {
-    return new Parse_TableElement(foreignColList, table, refColList);
+    return new Parse_Create(foreignColList, table, refColList);
   }
 }
 
@@ -785,14 +687,14 @@ ArrayList < String > columnNameList() :
   }
 }
 
-Parse_TableElement dataType() :
+Parse_Create dataType() :
 {
   Token intval;
 }
 {
   < INT >
   {
-    return new Parse_TableElement(DataType.TYPE_INT);
+    return new Parse_Create(DataType.TYPE_INT);
   }
 |
   (
@@ -801,12 +703,12 @@ Parse_TableElement dataType() :
     intval = < INT_VALUE > 
     < RIGHT_PAREN >
     {
-      return new Parse_TableElement(DataType.TYPE_CHAR, Integer.parseInt(intval.image));
+      return new Parse_Create(DataType.TYPE_CHAR, Integer.parseInt(intval.image));
     }
   )
 | < DATE >
   {
-    return new Parse_TableElement(DataType.TYPE_DATE);
+    return new Parse_Create(DataType.TYPE_DATE);
   }
 }
 
@@ -1078,7 +980,7 @@ Predicate predicate() :
 Predicate comparisonPredicate() :
 {
   Token t;
-  ValueCompare vc1, vc2;
+  ColValTuple vc1, vc2;
 }
 {
   vc1 = compOperand() 
@@ -1089,14 +991,14 @@ Predicate comparisonPredicate() :
   }
 }
 
-ValueCompare compOperand() :
+ColValTuple compOperand() :
 {
   Value v;
   String t = null, c;
 }
 {
   v = comparableValue()
-  { return new ValueCompare(v); }
+  { return new ColValTuple(v); }
 |
   (
     (
@@ -1106,7 +1008,7 @@ ValueCompare compOperand() :
       < PERIOD >
     )?
     c = columnName()
-    {  return new ValueCompare(t, c); }
+    {  return new ColValTuple(t, c); }
   )
 }
 
@@ -1157,7 +1059,7 @@ DBMessage insertQuery() :
 {
   DBMessage msg;
   String table;
-  Parse_InsertValue insertVal;
+  Parse_Insert insertVal;
 }
 {
   < INSERT_INTO > 
@@ -1170,22 +1072,25 @@ DBMessage insertQuery() :
   }
 }
 
-Parse_InsertValue insertColumnsAndSource() :
+Parse_Insert insertColumnsAndSource() :
 {
-  ArrayList < String > colList = null;
-  ArrayList < Value > valList = null;
+  ArrayList<String> colList = null;
+  ArrayList<Value> valList = null;
+  Relation r;
 }
 {
   (
     colList = columnNameList()
   )?
   valList = valueList()
-  { return new Parse_InsertValue(colList, valList); }
+  {
+    return new Parse_Insert(colList, valList);
+  }
 }
 
-ArrayList < Value > valueList() :
+ArrayList<Value> valueList() :
 {
-  ArrayList < Value > valList = new ArrayList<Value>();
+  ArrayList<Value> valList = new ArrayList<Value>();
   Value val;
 }
 {
@@ -1222,7 +1127,7 @@ Value value() :
 }
 {
   < NULL >
-  { return null; }
+  { return new Value(); }
 | val = comparableValue()
   { return val; }
 }

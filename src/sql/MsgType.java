@@ -14,15 +14,15 @@ public enum MsgType {
 	ReferenceColumnExistenceError,
 	ReferenceTableExistenceError,
 	NonExistingColumnDefError, // columnName (String)
-																							// Required
+	CharLengthError,
+	// Required
 	TableExistenceError,
 
-	CharLengthError,
-
+	NoSuchTable,
+	
 	// Drop Table
 	DropSuccess, // tableName (String) Required
 	DropReferencedTableError,
-	NoSuchTable, // Desc
 
 	// Show Tables
 	ShowTablesNoTable,

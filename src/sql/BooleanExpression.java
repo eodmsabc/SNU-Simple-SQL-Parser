@@ -17,15 +17,15 @@ public class BooleanExpression {
 		int check;
 		ArrayList<Attribute> schema = r.getSchema();
 		ArrayList<ArrayList<Value>> records = r.getRecords();
-		int size = schema.size();
 		
 		ArrayList<ArrayList<Value>> result = new ArrayList<ArrayList<Value>>();
 		
 		try {
-			for (int i = 0; i < size; i++) {
-				check = root.evaluate(records.get(i), schema);
+			for (ArrayList<Value> rec : records) {
+				check = root.evaluate(rec, schema);
+				
 				if (check == 1) {
-					result.add(records.get(i));
+					result.add(rec);
 				}
 			}
 		}

@@ -1,27 +1,29 @@
 package sql;
 
-import java.util.ArrayList;
-
-public class ValueCompare {
+public class ColValTuple {
 	public String tableName = null;
 	public String columnName = null;
 	public Value value = null;
 	public Comparator comparator = null;
 	
-	public ValueCompare(String table, String column, Value val, Comparator comp) {
+	public ColValTuple(String table, String column, Value val, Comparator comp) {
 		tableName = table;
 		columnName = column;
 		value = val;
 		comparator = comp;
 	}
 	
-	public ValueCompare(Value val) {
+	public ColValTuple(Value val) {
 		value = val;
 	}
 	
-	public ValueCompare(String t, String c) {
+	public ColValTuple(String t, String c) {
 		tableName = t;
 		columnName = c;
+	}
+	
+	public ColValTuple(String col) {
+		columnName = col;
 	}
 	
 	public boolean isConstValue() {
@@ -57,15 +59,5 @@ public class ValueCompare {
 		}
 		
 		return ret;
-	}
-	
-	public static ArrayList<ValueCompare> vcColumnFilter(ArrayList<ValueCompare> vcList, ArrayList<String> colList) {
-		ArrayList<ValueCompare> filtered = new ArrayList<ValueCompare>();
-		for (ValueCompare vc : vcList) {
-			if (colList.contains(vc.columnName)) {
-				filtered.add(vc);
-			}
-		}
-		return filtered;
 	}
 }

@@ -20,24 +20,31 @@ public class Predicate {
 		c[0] = c0;
 	}
 	
-	public static Predicate generate(Comparator comp, ValueCompare vc0, ValueCompare vc1) {
+	public Predicate(ColValTuple insert) {
+		this(Comparator.EQ);
+		v[0] = insert.value;
+		t[1] = "-";
+		c[1] = insert.columnName;
+	}
+	
+	public static Predicate generate(Comparator comp, ColValTuple cv0, ColValTuple cv1) {
 		
 		Predicate newPredicate = new Predicate(comp);
 		
-		if (vc0.isConstValue()) {
-			newPredicate.v[0] = vc0.value;
+		if (cv0.isConstValue()) {
+			newPredicate.v[0] = cv0.value;
 		}
 		else {
-			newPredicate.t[0] = vc0.tableName;
-			newPredicate.c[0] = vc0.columnName;
+			newPredicate.t[0] = cv0.tableName;
+			newPredicate.c[0] = cv0.columnName;
 		}
 		
-		if (vc1.isConstValue()) {
-			newPredicate.v[1] = vc1.value;
+		if (cv1.isConstValue()) {
+			newPredicate.v[1] = cv1.value;
 		}
 		else {
-			newPredicate.t[1] = vc1.tableName;
-			newPredicate.c[1] = vc1.columnName;
+			newPredicate.t[1] = cv1.tableName;
+			newPredicate.c[1] = cv1.columnName;
 		}
 		
 		return newPredicate;
@@ -49,6 +56,7 @@ public class Predicate {
 	
 	public String tableCol(int i) {
 		if (t[i] == null) return "." + c[i];
+		else if (t[i].charAt(0) == '-') return c[i];
 		else return t[i] + "."  + c[i];
 	}
 	
@@ -68,7 +76,7 @@ public class Predicate {
 			}
 			
 			if (!Value.comparable(cp[0], cp[1])) {
-				throw new MyException(new DBMessage(MsgType.WhereIncomparableError));
+				throw new MyException(MsgType.WhereIncomparableError);
 			}
 		}
 		catch (MyException e) {
@@ -123,19 +131,22 @@ public class Predicate {
 		int size = schema.size();
 		int index = -1;
 		int tableIndex = 1;
+		boolean self = (col.indexOf('-') < 0);
 		String colName;
 		
 		for(int idx = 0; idx < size; idx++) {
 			colName = schema.get(idx).getName();
-			if (Relation.lastMatch(colName, col) >= 0) {
+			
+			boolean match = self? colName.equals(col) : (Relation.lastMatch(colName, col) >= 0);
+			if (match) {
 				if (index < 0) {
 					index = idx;
 				}
 				else {
-					throw new MyException(new DBMessage(MsgType.WhereAmbiguousReference));
+					throw new MyException(MsgType.WhereAmbiguousReference);
 				}
 			}
-			else if (t[i] != null) {
+			else if (t[i] != null && !t[i].equals("-")) {
 				if (tableIndex == 1) tableIndex = -1;
 				if(colName.substring(0, colName.indexOf('.')).equals(t[i])) {
 					tableIndex = 0;
@@ -144,11 +155,11 @@ public class Predicate {
 		}
 		
 		if (tableIndex < 0) {
-			throw new MyException(new DBMessage(MsgType.WhereTableNotSpecified));
+			throw new MyException(MsgType.WhereTableNotSpecified);
 		}
 		
 		if (index < 0) {
-			throw new MyException(new DBMessage(MsgType.WhereColumnNotExist));
+			throw new MyException(MsgType.WhereColumnNotExist);
 		}
 		
 		return rec.get(index);

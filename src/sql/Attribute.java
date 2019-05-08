@@ -133,7 +133,6 @@ public class Attribute implements Serializable {
 			if (!nullable) {
 				return new DBMessage(MsgType.InsertColumnNonNullableError, name);
 			}
-			val.type = dataType;
 			return null;
 		}
 		

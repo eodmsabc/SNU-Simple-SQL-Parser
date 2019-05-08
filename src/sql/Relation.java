@@ -3,14 +3,6 @@ package sql;
 import java.io.Serializable;
 import java.util.ArrayList;
 import com.sleepycat.je.Database;
-import com.sleepycat.je.DatabaseException;
-import com.sleepycat.je.DatabaseConfig;
-import com.sleepycat.je.DatabaseEntry;
-import com.sleepycat.je.Cursor;
-import com.sleepycat.je.LockMode;
-import com.sleepycat.je.OperationStatus;
-import com.sleepycat.je.Environment;
-import com.sleepycat.je.EnvironmentConfig;
 
 public class Relation implements Serializable {
 	private static final long serialVersionUID = 1L;
@@ -19,7 +11,8 @@ public class Relation implements Serializable {
 	private ArrayList<Attribute> schema;
 	private ArrayList<String> referedTableList;
 	private ArrayList<ArrayList<Value>> records;
-	private ArrayList<ForeignKeyConstraint> fkeys;
+	private ArrayList<String> pKeys;
+	private ArrayList<ForeignKeyConstraint> fKeys;
 
 	public Relation(String tableName) {
 		this.tableName = tableName;
@@ -44,8 +37,12 @@ public class Relation implements Serializable {
 		return records;
 	}
 
+	public ArrayList<String> getPrimaryKeys() {
+		return pKeys;
+	}
+
 	public ArrayList<ForeignKeyConstraint> getForeignKeyConstraint() {
-		return fkeys;
+		return fKeys;
 	}
 
 	public Attribute getAttribute(String colName) {
@@ -88,15 +85,37 @@ public class Relation implements Serializable {
 		return -1;
 	}
 
-	/*
-	 * public String getColumnNameByIndex(int idx) { if (idx < 0 || schema.size() <=
-	 * idx) return null; else return schema.get(idx).getName(); }
-	 */
+	public DBMessage createSchema(Database db, ArrayList<Parse_Create> elements) {
+		DBMessage msg;
+		ArrayList<Parse_Create> colDefs = new ArrayList<Parse_Create>();
+		ArrayList<String> primaryKeys = null;
+		ArrayList<ForeignKeyConstraint> fKeyConstraints = new ArrayList<ForeignKeyConstraint>();
 
-	public DBMessage createSchema(ArrayList<Parse_TableElement> colDefs, ArrayList<String> primaryKeys,
-			ArrayList<ForeignKeyConstraint> fConst) {
+		boolean pKeyAppeared = false;
+
+		for (Parse_Create elem : elements) {
+			switch (elem.type) {
+			case COLDEF:
+				colDefs.add(elem);
+				break;
+
+			case PRIMARY:
+				// Duplicated Primary Key Definition
+				if (pKeyAppeared) {
+					return new DBMessage(MsgType.DuplicatePrimaryKeyDefError);
+				}
+				pKeyAppeared = true;
+				primaryKeys = elem.primary;
+				break;
+
+			case FOREIGN:
+				fKeyConstraints.add(elem.foreign);
+				break;
+			}
+		}
+		
 		// Column Definition
-		for (Parse_TableElement elem : colDefs) {
+		for (Parse_Create elem : colDefs) {
 			// Existence Check
 			if (getAttribute(elem.columnName) != null) {
 				return new DBMessage(MsgType.DuplicateColumnDefError);
@@ -114,7 +133,7 @@ public class Relation implements Serializable {
 			}
 			addAttribute(newAttribute);
 		}
-
+		
 		// Primary Key Constraints
 		if (primaryKeys != null) {
 			for (String col : primaryKeys) {
@@ -124,26 +143,89 @@ public class Relation implements Serializable {
 				}
 			}
 		}
-
+		pKeys = primaryKeys;
+		
 		// Foreign Key Constraints
+		Relation foreignRelation;
+		for (ForeignKeyConstraint elem : fKeyConstraints) {
+			foreignRelation = db_search(db, elem.refTable);
+
+			if (foreignRelation == null) {
+				return new DBMessage(MsgType.ReferenceTableExistenceError);
+			}
+
+			// Check the count of reference column
+			int forKeySize = elem.foreignKeys.size();
+			int refKeySize = elem.referingKeys.size();
+			if (forKeySize != refKeySize) {
+				return new DBMessage(MsgType.ReferenceTypeError);
+			}
+
+			msg = referenceCheck(foreignRelation, elem);
+
+			if (msg != null) {
+				return msg;
+			}
+		}
+		fKeys = fKeyConstraints;
+		
+		// Modify other relation's referenceList & nullable set
+		for (ForeignKeyConstraint fkc : fKeys) {
+			boolean nullable = true;
+			for (String fcol : fkc.foreignKeys) {
+				nullable = nullable && getAttribute(fcol).isNullable();
+			}
+			fkc.nullable = nullable;
+			addReferenceList(db, fkc.refTable);
+		}
+
+		return null;
+	}
+
+	public DBMessage referenceCheck(Relation foreign, ForeignKeyConstraint elem) {
+		int keySize = elem.foreignKeys.size();
+
+		for (int index = 0; index < keySize; index++) {
+			String curCol = elem.foreignKeys.get(index);
+			String refCol = elem.referingKeys.get(index);
+
+			Attribute curAttr = getAttribute(curCol);
+			if (curAttr == null) {
+				return new DBMessage(MsgType.NonExistingColumnDefError, curCol);
+			}
+
+			Attribute refAttr = foreign.getAttribute(refCol);
+			if (refAttr == null) {
+				return new DBMessage(MsgType.ReferenceColumnExistenceError);
+			}
+
+			if (!refAttr.isPrimary()) {
+				return new DBMessage(MsgType.ReferenceNonPrimaryKeyError);
+			}
+
+			if (!Attribute.checkTypeMatch(curAttr, refAttr)) {
+				return new DBMessage(MsgType.ReferenceTypeError);
+			}
+
+			setForeign(curCol, foreign.getTableName(), refCol);
+		}
+
+		// Check if FK references all primary key set
+		ArrayList<Attribute> refSchema = foreign.getSchema();
+
+		for (Attribute attr : refSchema) {
+			if (attr.isPrimary()) {
+				if (!elem.referingKeys.contains(attr.getName())) {
+					return new DBMessage(MsgType.ReferenceNonPrimaryKeyError);
+				}
+			}
+		}
 
 		return null;
 	}
 
 	private void addAttribute(Attribute attr) {
 		schema.add(attr);
-	}
-
-	public ArrayList<String> getPrimaryKeys() {
-		ArrayList<String> primaryKeys = new ArrayList<String>();
-
-		for (Attribute attr : schema) {
-			if (attr.isPrimary()) {
-				primaryKeys.add(attr.getName());
-			}
-		}
-
-		return primaryKeys;
 	}
 
 	private boolean setPrimary(String colName) {
@@ -156,29 +238,17 @@ public class Relation implements Serializable {
 		return false;
 	}
 
-	public ArrayList<String> getForeignKeys() {
-		ArrayList<String> foreignKeys = new ArrayList<String>();
-
-		for (Attribute attr : schema) {
-			if (attr.isForeign()) {
-				foreignKeys.add(attr.getName());
-			}
+	boolean setForeign(String colName, String refTable, String refCol) {
+		Attribute attr = getAttribute(colName);
+		if (attr == null) {
+			return false;
 		}
 
-		return foreignKeys;
+		attr.setForeign(refTable, refCol);
+		return true;
 	}
 
-	public boolean setForeign(String colName, String refTable, String refCol) {
-		for (Attribute attr : schema) {
-			if (colName.equals(attr.getName())) {
-				attr.setForeign(refTable, refCol);
-				return true;
-			}
-		}
-		return false;
-	}
-
-	public String getRefTable(String foreignKey) {
+	String getRefTableOfKey(String foreignKey) {
 		String refTable = null;
 		for (Attribute attr : schema) {
 			if (foreignKey.equals(attr.getName())) {
@@ -190,10 +260,9 @@ public class Relation implements Serializable {
 
 	public ArrayList<String> getReferingTableList() {
 		ArrayList<String> referingTableList = new ArrayList<String>();
-		for (Attribute attr : schema) {
-			if (!attr.isForeign())
-				continue;
-			String refTableName = attr.getRefTable();
+		for (ForeignKeyConstraint fkc : fKeys) {
+
+			String refTableName = fkc.refTable;
 			if (!referingTableList.contains(refTableName)) {
 				referingTableList.add(refTableName);
 			}
@@ -201,20 +270,48 @@ public class Relation implements Serializable {
 		return referingTableList;
 	}
 
-	public void addReferedTableList(String rTable) {
+	private void addReferenceList(Database db, String target) {
+		Relation targetRel = Relation.db_search(db, target);
+		if (targetRel == null)
+			return;
+		targetRel.addReferedTableList(tableName);
+		Relation.db_replace(db, targetRel);
+	}
+
+	private void delReferenceList(Database db, String target) {
+		Relation targetRel = Relation.db_search(db, target);
+		if (targetRel == null)
+			return;
+		targetRel.delReferedTableList(tableName);
+		Relation.db_replace(db, targetRel);
+	}
+
+	void addReferedTableList(String rTable) {
 		if (referedTableList.contains(rTable))
 			return;
 		referedTableList.add(rTable);
 	}
 
-	public void delReferedTableList(String rTable) {
+	void delReferedTableList(String rTable) {
 		if (!referedTableList.contains(rTable))
 			return;
 		referedTableList.remove(rTable);
 	}
 
-	public int getRefCount() {
+	int getRefCount() {
 		return referedTableList.size();
+	}
+
+	public DBMessage dropCleanUp(Database db) {
+		if (getRefCount() > 0) {
+			return new DBMessage(MsgType.DropReferencedTableError, tableName);
+		}
+
+		ArrayList<String> refTableList = getReferingTableList();
+		for (String refTable : refTableList) {
+			delReferenceList(db, refTable);
+		}
+		return null;
 	}
 
 	public String describe() {
@@ -229,92 +326,122 @@ public class Relation implements Serializable {
 		return desc;
 	}
 
-	public DBMessage insertConstraintsCheck(Parse_InsertValue insertVal, ArrayList<ValueCompare> vcList) {
+	public ArrayList<ColValTuple> parseInputValue(Parse_Insert insertVal) throws MyException {
 		DBMessage msg;
-		int size = insertVal.valList.size();
 		int schemaSize = schema.size();
-
-		if (insertVal.colList == null) {
-			if (size != schemaSize) {
-				return new DBMessage(MsgType.InsertTypeMismatchError);
-			}
-			insertVal.colList = getColumnList();
-		} else if (size != insertVal.colList.size()) {
-			return new DBMessage(MsgType.InsertTypeMismatchError);
+		ArrayList<ColValTuple> retList = new ArrayList<ColValTuple>();
+		for (int i = 0; i < schemaSize; i++) {
+			retList.add(new ColValTuple(schema.get(i).getName()));
 		}
-
-		// Validate input column names
-		for (int index = 0; index < size; index++) {
-			String colName = insertVal.colList.get(index);
-
-			Attribute attr = getAttribute(colName);
-
-			if (attr == null) {
-				return new DBMessage(MsgType.InsertColumnExistenceError, colName);
+		
+		ArrayList<Value> valList = insertVal.valList;
+		ArrayList<String> colList = insertVal.colList;
+		int colSize;
+		int valSize = insertVal.valList.size();
+		if (colList == null) {
+			if (valSize != schemaSize) {
+				throw new MyException(MsgType.InsertTypeMismatchError);
 			}
-
-			// Check Column Name Duplication
-			for (int index2 = index + 1; index2 < size; index2++) {
-				if (colName.equals(insertVal.colList.get(index2))) {
-					return new DBMessage(MsgType.InsertTypeMismatchError);
+			else {
+				for (int i = 0; i < schemaSize; i++) {
+					// Type Check
+					msg = schema.get(i).typeCheck(valList.get(i));
+					if (msg != null) {
+						throw new MyException(msg);
+					}
+					retList.get(i).value = valList.get(i);
 				}
 			}
 		}
-
-		// Construct new value list w/ same order with schema
-		ArrayList<String> colNameList = getColumnList();
-		for (String col : colNameList) {
-			Value val = insertVal.getValue(col);
-			if (val == null)
-				val = new Value();
-
-			vcList.add(new ValueCompare(tableName, col, val, Comparator.EQ));
-		}
-
-		// Check Types
-		for (ValueCompare vc : vcList) {
-			Attribute attr = getAttribute(vc.columnName);
-			msg = attr.typeCheck(vc.value);
-			if (msg != null) {
-				return msg;
+		else {
+			colSize = colList.size();
+			if (colSize != valSize) {
+				throw new MyException(MsgType.InsertTypeMismatchError);
+			}
+			else {
+				// Column Existence Check
+				ArrayList<String> columnCheck = getColumnList();
+				for (String c : colList) {
+					if (!columnCheck.contains(c)) {
+						throw new MyException(MsgType.InsertColumnExistenceError, c);
+					}
+				}
+				
+				for (int i = 0; i < schemaSize; i++) {
+					int cListIdx = colList.indexOf(columnCheck.get(i));
+					if (cListIdx < 0) {	// Null check
+						if (!schema.get(i).isNullable()) {
+							throw new MyException(MsgType.InsertTypeMismatchError);
+						}
+						retList.get(i).value = new Value();
+					}
+					else {	// Type Check
+						msg = schema.get(i).typeCheck(valList.get(cListIdx));
+						if (msg != null) {
+							throw new MyException(msg);
+						}
+						retList.get(i).value = valList.get(cListIdx);
+					}
+				}
 			}
 		}
-
-		// Check primary key constraints
-		ArrayList<String> primaryKeys = getPrimaryKeys();
-		ArrayList<ValueCompare> primaryValues = ValueCompare.vcColumnFilter(vcList, primaryKeys);
-
-		ArrayList<ArrayList<Value>> result = new ArrayList<ArrayList<Value>>();
-		msg = select(primaryValues, result);
-
-		if (msg != null) {
-			// TODO DEBUG This code should not be executed
-			System.out.println("This should not be displayed. Insert Primary Search Error");
+		
+		return retList;
+	}
+	
+	public ArrayList<ColValTuple> insertParse(Database db, Parse_Insert insertVal) throws MyException {
+		
+		ArrayList<ColValTuple> cvTuple;
+		
+		try {
+			cvTuple = parseInputValue(insertVal);
 		}
-		if (result.size() != 0) {
-			return new DBMessage(MsgType.InsertDuplicatePrimaryKeyError);
+		catch (MyException e) {
+			throw e;
 		}
-
-		return null;
+		
+		if (pKeys != null) {
+			BooleanExpression pKeyCheck = generatePrimaryCheckExpr(cvTuple);
+			
+			ArrayList<ArrayList<Value>> searchResult = pKeyCheck.filter(this);
+			if (searchResult.size() > 0) {
+				throw new MyException(MsgType.InsertDuplicatePrimaryKeyError);
+			}
+		}
+		
+		return cvTuple;
 	}
 
-	public void insertRecord(ArrayList<ValueCompare> insertRecord) {
+	public void insertRecord(ArrayList<ColValTuple> cvTuple) {
 		ArrayList<Value> newRecord = new ArrayList<Value>();
-		int size = insertRecord.size();
+		int size = cvTuple.size();
 
 		for (int i = 0; i < size; i++) {
-			Value val = insertRecord.get(i).value;
-			newRecord.add(val);
+			newRecord.add(cvTuple.get(i).value);
 		}
 		records.add(newRecord);
 	}
 
-	public DBMessage select(ArrayList<ValueCompare> where, ArrayList<ArrayList<Value>> result) {
+	private BooleanExpression generatePrimaryCheckExpr(ArrayList<ColValTuple> cvTuple) {
+		int index = getIndexByColumnName(pKeys.get(0));
+		Predicate p = new Predicate(cvTuple.get(index));
+		BooleanNode node = new BooleanNode(p);
+		
+		for (int i = 1; i < pKeys.size(); i++) {
+			index = getIndexByColumnName(pKeys.get(i));
+			p = new Predicate(cvTuple.get(index));
+			node = new BooleanNode('&', node, new BooleanNode(p));
+		}
+		
+		return new BooleanExpression(node);
+	}
+	
+	public DBMessage select(ArrayList<ColValTuple> where, ArrayList<ArrayList<Value>> result) {
 		ArrayList<Integer> colIndexList = new ArrayList<Integer>();
 
 		int size = where.size();
 		for (int i = 0; i < size; i++) {
-			ValueCompare vc = where.get(i);
+			ColValTuple vc = where.get(i);
 			if (vc.tableName.equals(tableName)) {
 				int index = schema.indexOf(getAttribute(vc.columnName));
 				if (index < 0) {
@@ -345,48 +472,6 @@ public class Relation implements Serializable {
 		return rec.get(idx);
 	}
 
-	public static DBMessage referenceCheck(Relation cur, Relation ref, Parse_TableElement elem) {
-		int keySize = elem.foreign.size();
-
-		for (int index = 0; index < keySize; index++) {
-			String curCol = elem.foreign.get(index);
-			String refCol = elem.refKeys.get(index);
-
-			Attribute curAttr = cur.getAttribute(curCol);
-			if (curAttr == null) {
-				return new DBMessage(MsgType.NonExistingColumnDefError, curCol);
-			}
-
-			Attribute refAttr = ref.getAttribute(refCol);
-			if (refAttr == null) {
-				return new DBMessage(MsgType.ReferenceColumnExistenceError);
-			}
-
-			if (!refAttr.isPrimary()) {
-				return new DBMessage(MsgType.ReferenceNonPrimaryKeyError);
-			}
-
-			if (!Attribute.checkTypeMatch(curAttr, refAttr)) {
-				return new DBMessage(MsgType.ReferenceTypeError);
-			}
-
-			cur.setForeign(curCol, ref.getTableName(), refCol);
-		}
-
-		// Check if FK references all primary key set
-		ArrayList<Attribute> refSchema = ref.getSchema();
-
-		for (Attribute attr : refSchema) {
-			if (attr.isPrimary()) {
-				if (!elem.refKeys.contains(attr.getName())) {
-					return new DBMessage(MsgType.ReferenceNonPrimaryKeyError);
-				}
-			}
-		}
-
-		return null;
-	}
-
 	public static int lastMatch(String orig, String pattern) {
 		int idx = orig.indexOf(pattern);
 
@@ -400,18 +485,16 @@ public class Relation implements Serializable {
 		}
 	}
 
-	public static Relation join(Relation r1, Relation r2) {
-		return Relation.join(r1, r1.getTableName(), r2, r2.getTableName());
-	}
-
-	public static Relation join(Relation r1, String newTable1, Relation r2) {
-		return Relation.join(r1, newTable1, r2, r2.getTableName());
-	}
-
-	public static Relation join(Relation r1, Relation r2, String newTable2) {
-		return Relation.join(r1, r1.getTableName(), r2, newTable2);
-	}
-
+	/*
+	 * public static Relation join(Relation r1, Relation r2) { return
+	 * Relation.join(r1, r1.getTableName(), r2, r2.getTableName()); }
+	 * 
+	 * public static Relation join(Relation r1, String newTable1, Relation r2) {
+	 * return Relation.join(r1, newTable1, r2, r2.getTableName()); }
+	 * 
+	 * public static Relation join(Relation r1, Relation r2, String newTable2) {
+	 * return Relation.join(r1, r1.getTableName(), r2, newTable2); }
+	 */
 	public static Relation join(Relation r1, String newTable1, Relation r2, String newTable2) {
 
 		Relation result = new Relation("--result");
@@ -477,12 +560,12 @@ public class Relation implements Serializable {
 		return result;
 	}
 
-	public static void db_insert(Database db, String table, Relation r) {
-		DataManager.insert(db, table, DataManager.serialize(r));
+	public static void db_insert(Database db, Relation r) {
+		DataManager.insert(db, r.getTableName(), DataManager.serialize(r));
 	}
 
-	public static void db_replace(Database db, String table, Relation r) {
-		DataManager.replace(db, table, DataManager.serialize(r));
+	public static void db_replace(Database db, Relation r) {
+		DataManager.replace(db, r.getTableName(), DataManager.serialize(r));
 	}
 
 	public static Relation db_search(Database db, String table) {

@@ -7,6 +7,15 @@ public class MyException extends Exception {
 	public MyException(DBMessage msg) {
 		this.msg = msg;
 	}
+	public MyException(MsgType type) {
+		msg = new DBMessage(type);
+	}
+	public MyException(MsgType type, String s) {
+		msg = new DBMessage(type, s);
+	}
+	public MyException(MsgType type, int c) {
+		msg = new DBMessage(type, c);
+	}
 	public DBMessage getDBMessage() {
 		return msg;
 	}
