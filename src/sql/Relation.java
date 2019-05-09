@@ -557,7 +557,7 @@ public class Relation implements Serializable {
 		return result;
 	}
 	
-	void select(ArrayList<Rename> selected, BooleanExpression bxpr) throws MyException {
+	DBMessage select(ArrayList<Rename> selected, BooleanExpression bxpr) throws MyException {
 		ArrayList<ArrayList<Value>> searchResult = null;
 		
 		if (bxpr == null) {
@@ -567,38 +567,47 @@ public class Relation implements Serializable {
 		}
 		
 		ArrayList<Integer> indexList = new ArrayList<Integer>();
-		ArrayList<ArrayList<Value>> selectedResult = selectColumn(selected, searchResult, indexList);
+		ArrayList<ArrayList<Value>> selectedResult = null;
+		try {
+			selectedResult = selectColumn(selected, searchResult, indexList);
+		} catch (MyException e) {
+			return e.getDBMessage();
+		}
+		
 		selectPrintResult(indexList, selected, selectedResult);
+		return null;
 	}
 	
-	private ArrayList<ArrayList<Value>> selectColumn(ArrayList<Rename> selectList, ArrayList<ArrayList<Value>> searchResult, ArrayList<Integer> indexList) {
+	private ArrayList<ArrayList<Value>> selectColumn(ArrayList<Rename> sList, ArrayList<ArrayList<Value>> sResult, ArrayList<Integer> iList) throws MyException {
 		int schemaSize = schema.size();
 
-		if (selectList == null) {
+		if (sList == null) {
 			for (int i = 0; i < schemaSize; i++) {
-				indexList.add(i);
+				iList.add(i);
 			}
-			return searchResult;
+			return sResult;
 		}
 
 		ArrayList<ArrayList<Value>> result = new ArrayList<ArrayList<Value>>();
 
 		String searchPattern;
-		for (Rename rename : selectList) {
+		for (Rename rename : sList) {
 			searchPattern = (rename.tableName == null ? "" : rename.tableName) + "." + rename.columnName;
 			for (int idx = 0; idx < schema.size(); idx++) {
 				Attribute attr = schema.get(idx);
 				if (Relation.lastMatch(attr.getName(), searchPattern) >= 0) {
-					indexList.add(idx);
+					iList.add(idx);
 					break;
+				} else {
+					throw new MyException(MsgType.SelectColumnResolveError, (rename.tableName == null? rename.columnName : searchPattern));
 				}
 			}
 		}
 
 		ArrayList<Value> entity;
-		for (ArrayList<Value> rec : searchResult) {
+		for (ArrayList<Value> rec : sResult) {
 			entity = new ArrayList<Value>();
-			for (int idx : indexList) {
+			for (int idx : iList) {
 				entity.add(rec.get(idx));
 			}
 			result.add(entity);
@@ -727,9 +736,13 @@ public class Relation implements Serializable {
 		Relation cartesian = Relation.selectJoin(db, tables);
 		
 		try {
-			cartesian.select(selected,  bxpr);
+			msg = cartesian.select(selected,  bxpr);
 		} catch (MyException e) {
 			return e.getDBMessage();
+		}
+		
+		if (msg != null) {
+			return msg;
 		}
 
 		return null;
@@ -811,7 +824,7 @@ public class Relation implements Serializable {
 
 			if (newNameDupCheck.contains(r.newName)) {
 				// TODO return some error
-				return null;
+				return new DBMessage(MsgType.WhereAmbiguousReference);
 			} else {
 				newNameDupCheck.add(r.newName);
 			}
