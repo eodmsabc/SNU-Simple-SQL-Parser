@@ -422,7 +422,8 @@ public class Relation implements Serializable {
 		records.add(newRecord);
 	}
 
-	private BooleanExpression generatePrimaryCheckExpr(ArrayList<ColValTuple> cvTuple) {
+	BooleanExpression generatePrimaryCheckExpr(ArrayList<ColValTuple> cvTuple) {
+		/*
 		int index = getIndexByColumnName(pKeys.get(0));
 		Predicate p = new Predicate(cvTuple.get(index));
 		BooleanNode node = new BooleanNode(p);
@@ -430,6 +431,15 @@ public class Relation implements Serializable {
 		for (int i = 1; i < pKeys.size(); i++) {
 			index = getIndexByColumnName(pKeys.get(i));
 			p = new Predicate(cvTuple.get(index));
+			node = new BooleanNode('&', node, new BooleanNode(p));
+		}
+		*/
+		ArrayList<ColValTuple> pKeyTuple = ColValTuple.columnFilter(pKeys, cvTuple);
+		Predicate p = new Predicate(pKeyTuple.get(0));
+		BooleanNode node = new BooleanNode(p);
+		
+		for (int i = 1; i < pKeyTuple.size(); i++) {
+			p = new Predicate(pKeyTuple.get(i));
 			node = new BooleanNode('&', node, new BooleanNode(p));
 		}
 		

@@ -40,6 +40,7 @@ public class SQLParser
         parser.command();
       }
       catch (Exception e) {
+        e.printStackTrace();
         printMessage(new DBMessage(MsgType.SyntaxError));
         SQLParser.ReInit(System.in);
       }

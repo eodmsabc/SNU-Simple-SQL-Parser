@@ -29,10 +29,16 @@ public class BooleanNode {
 					retval = MyCalc.not(b1.evaluate(rec, schema));
 					break;
 				case B_AND:
-					retval = MyCalc.and(b1.evaluate(rec, schema), b2.evaluate(rec, schema));
+					retval = b1.evaluate(rec, schema);
+					if (retval != -1) {
+						retval = MyCalc.and(retval, b2.evaluate(rec, schema));
+					}
 					break;
 				case B_OR:
-					retval = MyCalc.or(b1.evaluate(rec, schema), b2.evaluate(rec, schema));
+					retval = b1.evaluate(rec, schema);
+					if (retval != 1) {
+						retval = MyCalc.and(retval, b2.evaluate(rec, schema));
+					}
 					break;
 				default:
 					retval = predicate.evaluate(rec, schema);

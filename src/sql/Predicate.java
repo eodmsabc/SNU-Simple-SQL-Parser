@@ -7,12 +7,14 @@ public class Predicate {
 	Value[] v;
 	Comparator op;
 	String[] t, c;
+	private DataType[] type;
 	
 	private Predicate(Comparator comp) {
 		op = comp;
 		v = new Value[2];
 		t = new String[2];
 		c = new String[2];
+		type = new DataType[2];
 	}
 	public Predicate(Comparator comp, String t0, String c0) {
 		this(comp);
@@ -66,13 +68,27 @@ public class Predicate {
 		
 		try {
 			for (int i = 0; i < 2; i++) {
-				if (i == 1 && (op == Comparator.IN || op == Comparator.INN)) break;
+				if (i == 1 && (op == Comparator.IN || op == Comparator.INN)) {
+					if (op == Comparator.IN) {
+						if (cp[0].isNull()) return 1;
+						else return -1;
+					}
+					else if (op == Comparator.INN) {
+						if (cp[0].isNull()) return -1;
+						else return 1;
+					}
+				}
 				if (isConst(i)) {
 					cp[i] = v[i];
+					type[i] = v[i].type;
 				}
 				else {
 					cp[i] = findValue(i, rec, schema);
 				}
+			}
+			
+			if (type[0] != type[1]) {
+				throw new MyException(MsgType.WhereIncomparableError);
 			}
 			
 			if (!Value.comparable(cp[0], cp[1])) {
@@ -81,15 +97,6 @@ public class Predicate {
 		}
 		catch (MyException e) {
 			throw e;
-		}
-		
-		if (op == Comparator.IN) {
-			if (cp[0].isNull()) return 1;
-			else return -1;
-		}
-		else if (op == Comparator.INN) {
-			if (cp[0].isNull()) return -1;
-			else return 1;
 		}
 		
 		if (cp[0].isNull() || cp[1].isNull()) {
@@ -162,6 +169,7 @@ public class Predicate {
 			throw new MyException(MsgType.WhereColumnNotExist);
 		}
 		
+		type[i] = schema.get(index).getDataType();
 		return rec.get(index);
 	}
 }

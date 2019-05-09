@@ -11,7 +11,7 @@ public class MyCalc {
 		return a > b ? a : b;
 	}
 	public static int not(int a) {
-		return 1-a;
+		return -a;
 	}
 	public static int max(int a, int b) {
 		return a > b ? a : b;

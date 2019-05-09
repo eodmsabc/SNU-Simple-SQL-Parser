@@ -1,5 +1,7 @@
 package sql;
 
+import java.util.ArrayList;
+
 public class ColValTuple {
 	public String tableName = null;
 	public String columnName = null;
@@ -59,5 +61,17 @@ public class ColValTuple {
 		}
 		
 		return ret;
+	}
+	
+	static ArrayList<ColValTuple> columnFilter(ArrayList<String> colList, ArrayList<ColValTuple> cvList) {
+		ArrayList<ColValTuple> retList = new ArrayList<ColValTuple>();
+		for (String col : colList) {
+			for (ColValTuple cv : cvList) {
+				if (col.equals(cv.columnName)) {
+					retList.add(cv);
+				}
+			}
+		}
+		return retList;
 	}
 }
