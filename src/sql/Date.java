@@ -12,13 +12,11 @@ public class Date implements Comparable<Date>, Serializable {
 		date = Integer.parseInt(rawDate.substring(8, 10));
 	}
 	
-	/*
-	public Date(int y, int m, int d) {
-		year = y;
-		month = m;
-		date = d;
+	public Date(Date d) {
+		year = d.year;
+		month = d.month;
+		date = d.date;
 	}
-	*/
 	
 	int year;
 	int month;

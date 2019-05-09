@@ -85,65 +85,41 @@ public class Relation implements Serializable {
 		return -1;
 	}
 
-	public DBMessage createSchema(Database db, ArrayList<Parse_Create> elements) {
+	public DBMessage createSchema(Database db, ArrayList<Attribute> colDefs, ArrayList<ArrayList<String>> primary, ArrayList<ForeignKeyConstraint> fKeyConstraints) {
 		DBMessage msg;
-		ArrayList<Parse_Create> colDefs = new ArrayList<Parse_Create>();
-		ArrayList<String> primaryKeys = null;
-		ArrayList<ForeignKeyConstraint> fKeyConstraints = new ArrayList<ForeignKeyConstraint>();
-
-		boolean pKeyAppeared = false;
-
-		for (Parse_Create elem : elements) {
-			switch (elem.type) {
-			case COLDEF:
-				colDefs.add(elem);
-				break;
-
-			case PRIMARY:
-				// Duplicated Primary Key Definition
-				if (pKeyAppeared) {
-					return new DBMessage(MsgType.DuplicatePrimaryKeyDefError);
-				}
-				pKeyAppeared = true;
-				primaryKeys = elem.primary;
-				break;
-
-			case FOREIGN:
-				fKeyConstraints.add(elem.foreign);
-				break;
-			}
-		}
 		
+		if (primary.size() > 1) {
+			return new DBMessage(MsgType.DuplicatePrimaryKeyDefError);
+		}
+
 		// Column Definition
-		for (Parse_Create elem : colDefs) {
+		for (Attribute attr : colDefs) {
 			// Existence Check
-			if (getAttribute(elem.columnName) != null) {
+			if (getAttribute(attr.getName()) != null) {
 				return new DBMessage(MsgType.DuplicateColumnDefError);
 			}
-
-			Attribute newAttribute;
-			if (elem.dataType == DataType.TYPE_CHAR) {
+			
+			if (attr.getDataType() == DataType.TYPE_CHAR) {
 				// Check Negative Char Length
-				if (elem.charlen <= 0) {
+				if (attr.getCharLength() <= 0) {
 					return new DBMessage(MsgType.CharLengthError);
 				}
-				newAttribute = new Attribute(elem.columnName, elem.dataType, elem.charlen, elem.nullable);
-			} else {
-				newAttribute = new Attribute(elem.columnName, elem.dataType, elem.nullable);
 			}
-			addAttribute(newAttribute);
+			addAttribute(attr);
 		}
 		
 		// Primary Key Constraints
-		if (primaryKeys != null) {
-			for (String col : primaryKeys) {
+		if (primary.size() == 1) {
+			for (String col : primary.get(0)) {
 				boolean colFound = setPrimary(col);
 				if (colFound == false) {
 					return new DBMessage(MsgType.NonExistingColumnDefError, col);
 				}
 			}
+			pKeys = primary.get(0);
+		} else {
+			pKeys = new ArrayList<String>();
 		}
-		pKeys = primaryKeys;
 		
 		// Foreign Key Constraints
 		Relation foreignRelation;
@@ -326,7 +302,7 @@ public class Relation implements Serializable {
 		return desc;
 	}
 
-	public ArrayList<ColValTuple> parseInputValue(Parse_Insert insertVal) throws MyException {
+	private ArrayList<ColValTuple> parseInputValue(ArrayList<String> colList, ArrayList<Value> valList) throws MyException {
 		DBMessage msg;
 		int schemaSize = schema.size();
 		ArrayList<ColValTuple> retList = new ArrayList<ColValTuple>();
@@ -334,11 +310,9 @@ public class Relation implements Serializable {
 			retList.add(new ColValTuple(schema.get(i).getName()));
 		}
 		
-		ArrayList<Value> valList = insertVal.valList;
-		ArrayList<String> colList = insertVal.colList;
-		int colSize;
-		int valSize = insertVal.valList.size();
-		if (colList == null) {
+		int colSize = colList.size();
+		int valSize = valList.size();
+		if (colSize == 0) {
 			if (valSize != schemaSize) {
 				throw new MyException(MsgType.InsertTypeMismatchError);
 			}
@@ -354,7 +328,6 @@ public class Relation implements Serializable {
 			}
 		}
 		else {
-			colSize = colList.size();
 			if (colSize != valSize) {
 				throw new MyException(MsgType.InsertTypeMismatchError);
 			}
@@ -388,31 +361,71 @@ public class Relation implements Serializable {
 		
 		return retList;
 	}
-	
-	public ArrayList<ColValTuple> insertParse(Database db, Parse_Insert insertVal) throws MyException {
-		
-		ArrayList<ColValTuple> cvTuple;
-		
-		try {
-			cvTuple = parseInputValue(insertVal);
-		}
-		catch (MyException e) {
-			throw e;
-		}
-		
-		if (pKeys != null) {
+
+	private DBMessage insertConstraintCheck(Database db, ArrayList<ColValTuple> cvTuple) {
+		// Primary Key Constraint
+		if (pKeys.size() > 0) {
 			BooleanExpression pKeyCheck = generatePrimaryCheckExpr(cvTuple);
+			ArrayList<ArrayList<Value>> searchResult;
 			
-			ArrayList<ArrayList<Value>> searchResult = pKeyCheck.filter(this);
+			try {
+				searchResult = pKeyCheck.filter(this);
+			}
+			catch (MyException e) {
+				return e.getDBMessage();
+			}
+			
 			if (searchResult.size() > 0) {
-				throw new MyException(MsgType.InsertDuplicatePrimaryKeyError);
+				return new DBMessage(MsgType.InsertDuplicatePrimaryKeyError);
 			}
 		}
 		
-		return cvTuple;
+		// Referential Integrity Check
+		boolean refIntegrityCheckNeeded = true;
+		for (ColValTuple cv : cvTuple) {
+			if (cv.value.isNull()) {
+				refIntegrityCheckNeeded = false;
+				break;
+			}
+		}
+		
+		if (refIntegrityCheckNeeded) {
+			for (ForeignKeyConstraint fkc : fKeys) {
+				ArrayList<ColValTuple> fcv = ColValTuple.columnFilter(fkc.foreignKeys, cvTuple);
+				for (int i = 0; i < fcv.size(); i++) {
+					fcv.get(i).columnName = fkc.referingKeys.get(i);
+				}
+				
+				Relation refr = Relation.db_search(db, fkc.refTable);
+				BooleanExpression refbool = refr.generatePrimaryCheckExpr(fcv);
+				
+				ArrayList<ArrayList<Value>> fsearchList = refr.search(refbool);
+				
+				if (fsearchList.size() == 0) {
+					return new DBMessage(MsgType.InsertReferentialIntegrityError);
+				}
+			}
+		}
+		
+		return null;
 	}
 
-	public void insertRecord(ArrayList<ColValTuple> cvTuple) {
+	public DBMessage insertRecord(Database db, ArrayList<String> colList, ArrayList<Value> valList) {
+		DBMessage msg;
+		ArrayList<ColValTuple> cvTuple;
+		
+		try {
+			cvTuple = parseInputValue(colList, valList);
+		}
+		catch (MyException e) {
+			return e.getDBMessage();
+		}
+		
+		msg = insertConstraintCheck(db, cvTuple);
+		if (msg != null) {
+			return msg;
+		}
+		
 		ArrayList<Value> newRecord = new ArrayList<Value>();
 		int size = cvTuple.size();
 
@@ -420,68 +433,276 @@ public class Relation implements Serializable {
 			newRecord.add(cvTuple.get(i).value);
 		}
 		records.add(newRecord);
+		
+		return null;
 	}
 
 	BooleanExpression generatePrimaryCheckExpr(ArrayList<ColValTuple> cvTuple) {
-		/*
-		int index = getIndexByColumnName(pKeys.get(0));
-		Predicate p = new Predicate(cvTuple.get(index));
-		BooleanNode node = new BooleanNode(p);
-		
-		for (int i = 1; i < pKeys.size(); i++) {
-			index = getIndexByColumnName(pKeys.get(i));
-			p = new Predicate(cvTuple.get(index));
-			node = new BooleanNode('&', node, new BooleanNode(p));
-		}
-		*/
 		ArrayList<ColValTuple> pKeyTuple = ColValTuple.columnFilter(pKeys, cvTuple);
-		Predicate p = new Predicate(pKeyTuple.get(0));
+		
+		return Relation.generateCheckExpr(pKeyTuple);
+	}
+	
+	public DBMessage delete(Database db, BooleanExpression where) {
+		int deleteCount = 0;
+		int cancelCount = 0;
+
+		ArrayList<ArrayList<Value>> searchResult;
+
+		try {
+			searchResult = where.filter(this);
+		} catch (MyException e) {
+			return e.getDBMessage();
+		}
+
+		for (ArrayList<Value> rec : searchResult) {
+			
+			ArrayList<ColValTuple> myPKey = new ArrayList<ColValTuple>();
+			for (String pCol : pKeys) {
+				myPKey.add(new ColValTuple(pCol, rec.get(getIndexByColumnName(pCol))));
+			}
+			
+			// Integrity violation check
+			boolean noViolation;
+			
+			noViolation = checkNoReferentialIntegrityViolation(db, myPKey);
+			
+			if (noViolation) {
+
+				if (pKeys.size() > 0) {
+					for (String refTable : referedTableList) {
+						Relation refRel = db_search(db, refTable);
+						refRel.cascadeDeletion(tableName, myPKey);
+					}
+				}
+				
+				records.remove(rec);
+				deleteCount++;
+			}
+			else {
+				cancelCount++;
+			}
+		}
+		
+		return new DBMessage(MsgType.DeleteResult, deleteCount, cancelCount);
+	}
+	
+	void cascadeDeletion(String dTable, ArrayList<ColValTuple> cvList) {
+		for (ForeignKeyConstraint fkc : fKeys) {
+			if (fkc.refTable.equals(dTable)) {
+				ArrayList<ColValTuple> myside = ColValTuple.columnFilter(fkc.referingKeys, cvList);
+				for (int i = 0; i < fkc.referingKeys.size(); i++) {
+					myside.get(i).columnName = fkc.foreignKeys.get(i);
+				}
+				
+				BooleanExpression bxpr = Relation.generateCheckExpr(myside);
+				ArrayList<ArrayList<Value>> searchResult = search(bxpr);
+				
+				for (ArrayList<Value> rec : searchResult) {
+					for (String fk : fkc.foreignKeys) {
+						rec.get(getIndexByColumnName(fk)).setNull();
+					}
+				}
+			}
+		}
+	}
+	
+	boolean checkViolateIntegrity(String dTable, ArrayList<ColValTuple> cvList) {
+		for (ForeignKeyConstraint fkc : fKeys) {
+			if (fkc.refTable.equals(dTable) && !fkc.nullable) {
+				ArrayList<ColValTuple> myside = ColValTuple.columnFilter(fkc.referingKeys, cvList);
+				for (int i = 0; i < fkc.referingKeys.size(); i++) {
+					myside.get(i).columnName = fkc.foreignKeys.get(i);
+				}
+				
+				BooleanExpression bxpr = Relation.generateCheckExpr(myside);
+				ArrayList<ArrayList<Value>> searchResult = search(bxpr);
+				
+				if (searchResult.size() > 0) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	
+	private boolean checkNoReferentialIntegrityViolation(Database db, ArrayList<ColValTuple> myPKey) {
+		
+		if (myPKey.size() == 0) {
+			return true;
+		}
+		
+		boolean violate;
+		for (String referedTable : referedTableList) {
+			
+			Relation referedRel = db_search(db, referedTable);
+
+			violate = referedRel.checkViolateIntegrity(tableName, myPKey);
+			
+			if (violate) {
+				return false;
+			}
+		}
+		
+		return true;
+	}
+	
+	public ArrayList<ArrayList<Value>> search(BooleanExpression bxpr) {
+		ArrayList<ArrayList<Value>> result = null;
+		try {
+			result = bxpr.filter(this);
+		} catch (MyException e) {
+			e.printStackTrace();
+		}
+		return result;
+	}
+	
+	void select(ArrayList<Rename> selected, BooleanExpression bxpr) throws MyException {
+		ArrayList<ArrayList<Value>> searchResult = null;
+		
+		if (bxpr == null) {
+			searchResult = records;
+		} else {
+			searchResult = bxpr.filter(this);
+		}
+		
+		ArrayList<Integer> indexList = new ArrayList<Integer>();
+		ArrayList<ArrayList<Value>> selectedResult = selectColumn(selected, searchResult, indexList);
+		selectPrintResult(indexList, selected, selectedResult);
+	}
+	
+	private ArrayList<ArrayList<Value>> selectColumn(ArrayList<Rename> selectList, ArrayList<ArrayList<Value>> searchResult, ArrayList<Integer> indexList) {
+		int schemaSize = schema.size();
+
+		if (selectList == null) {
+			for (int i = 0; i < schemaSize; i++) {
+				indexList.add(i);
+			}
+			return searchResult;
+		}
+
+		ArrayList<ArrayList<Value>> result = new ArrayList<ArrayList<Value>>();
+
+		String searchPattern;
+		for (Rename rename : selectList) {
+			searchPattern = (rename.tableName == null ? "" : rename.tableName) + "." + rename.columnName;
+			for (int idx = 0; idx < schema.size(); idx++) {
+				Attribute attr = schema.get(idx);
+				if (Relation.lastMatch(attr.getName(), searchPattern) >= 0) {
+					indexList.add(idx);
+					break;
+				}
+			}
+		}
+
+		ArrayList<Value> entity;
+		for (ArrayList<Value> rec : searchResult) {
+			entity = new ArrayList<Value>();
+			for (int idx : indexList) {
+				entity.add(rec.get(idx));
+			}
+			result.add(entity);
+		}
+
+		return result;
+	}
+
+	private void selectPrintResult(ArrayList<Integer> idxList, ArrayList<Rename> selectList, ArrayList<ArrayList<Value>> selectedResult) {
+		ArrayList<String> titleList = new ArrayList<String>();
+
+		Integer[] length = new Integer[idxList.size()];
+
+		for (int i = 0; i < idxList.size(); i++) {
+			length[i] = schema.get(idxList.get(i)).getDefaultLength();
+		}
+
+		if (selectList == null) {
+			for (int i = 0; i < idxList.size(); i++) {
+				titleList.add(schema.get(i).getName());
+				length[i] = MyCalc.max(length[i], titleList.get(i).length());
+			}
+		} else {
+			for (int i = 0; i < selectList.size(); i++) {
+				Rename rename = selectList.get(i);
+				if (rename.newName != null) {
+					titleList.add(rename.newName);
+				} else if (rename.tableName != null) {
+					titleList.add(rename.tableName + "." + rename.columnName);
+				} else {
+					titleList.add(rename.columnName);
+				}
+				length[i] = MyCalc.max(length[i], titleList.get(i).length());
+			}
+		}
+
+		int resultSize = selectedResult.size();
+		int columnSize = titleList.size();
+
+		for (int i = 0; i < columnSize; i++) {
+			for (int j = 0; j < resultSize; j++) {
+				length[i] = MyCalc.max(length[i], selectedResult.get(j).get(i).getLength());
+			}
+		}
+
+		selectRealPrint(titleList, length, selectedResult);
+	}
+
+	private static void selectRealPrint(ArrayList<String> title, Integer[] length,
+			ArrayList<ArrayList<Value>> searchResult) {
+		int columnNum = title.size();
+		ArrayList<String> format = new ArrayList<String>();
+
+		for (int i = 0; i < columnNum; i++) {
+			String f = String.format(" %%-%ds ", length[i]);
+			format.add(f);
+		}
+
+		String border = "+";
+		for (int i = 0; i < columnNum; i++) {
+			for (int j = 0; j < length[i] + 2; j++) {
+				border = border + "-";
+			}
+			border = border + "+";
+		}
+
+		System.out.println(border);
+
+		// Column Names
+		System.out.print("|");
+		for (int i = 0; i < columnNum; i++) {
+			System.out.printf(format.get(i), title.get(i));
+			System.out.print("|");
+		}
+		System.out.println();
+
+		System.out.println(border);
+
+		// Data
+
+		for (int j = 0; j < searchResult.size(); j++) {
+			System.out.print("|");
+			for (int i = 0; i < columnNum; i++) {
+				System.out.printf(format.get(i), searchResult.get(j).get(i));
+				System.out.print("|");
+			}
+			System.out.println();
+		}
+
+		System.out.println(border);
+	}
+
+	private static BooleanExpression generateCheckExpr(ArrayList<ColValTuple> cvTuple) {
+		Predicate p = new Predicate(cvTuple.get(0));
 		BooleanNode node = new BooleanNode(p);
 		
-		for (int i = 1; i < pKeyTuple.size(); i++) {
-			p = new Predicate(pKeyTuple.get(i));
+		for (int i = 1; i < cvTuple.size(); i++) {
+			p = new Predicate(cvTuple.get(i));
 			node = new BooleanNode('&', node, new BooleanNode(p));
 		}
 		
 		return new BooleanExpression(node);
 	}
 	
-	public DBMessage select(ArrayList<ColValTuple> where, ArrayList<ArrayList<Value>> result) {
-		ArrayList<Integer> colIndexList = new ArrayList<Integer>();
-
-		int size = where.size();
-		for (int i = 0; i < size; i++) {
-			ColValTuple vc = where.get(i);
-			if (vc.tableName.equals(tableName)) {
-				int index = schema.indexOf(getAttribute(vc.columnName));
-				if (index < 0) {
-					return new DBMessage(MsgType.SelectColumnResolveError, vc.columnName);
-				}
-				colIndexList.add(index);
-			}
-		}
-
-		boolean matched;
-		for (ArrayList<Value> record : records) {
-			for (int i = 0; i < size; i++) {
-				matched = true;
-				if (!where.get(i).check(record.get(colIndexList.get(i)))) {
-					matched = false;
-				}
-				if (matched) {
-					result.add(record);
-				}
-			}
-		}
-
-		return null;
-	}
-
-	public Value getValue(ArrayList<Value> rec, String columnName) {
-		int idx = getIndexByColumnName(columnName);
-		return rec.get(idx);
-	}
-
 	public static int lastMatch(String orig, String pattern) {
 		int idx = orig.indexOf(pattern);
 
@@ -495,16 +716,25 @@ public class Relation implements Serializable {
 		}
 	}
 
-	/*
-	 * public static Relation join(Relation r1, Relation r2) { return
-	 * Relation.join(r1, r1.getTableName(), r2, r2.getTableName()); }
-	 * 
-	 * public static Relation join(Relation r1, String newTable1, Relation r2) {
-	 * return Relation.join(r1, newTable1, r2, r2.getTableName()); }
-	 * 
-	 * public static Relation join(Relation r1, Relation r2, String newTable2) {
-	 * return Relation.join(r1, r1.getTableName(), r2, newTable2); }
-	 */
+	public static DBMessage selectQuery(Database db, ArrayList<Rename> selected, ArrayList<Rename> tables, BooleanExpression bxpr) {
+		DBMessage msg;
+
+		msg = selectCheckValidTableName(db, tables);
+		if (msg != null) {
+			return msg;
+		}
+
+		Relation cartesian = Relation.selectJoin(db, tables);
+		
+		try {
+			cartesian.select(selected,  bxpr);
+		} catch (MyException e) {
+			return e.getDBMessage();
+		}
+
+		return null;
+	}
+	
 	public static Relation join(Relation r1, String newTable1, Relation r2, String newTable2) {
 
 		Relation result = new Relation("--result");
@@ -570,6 +800,37 @@ public class Relation implements Serializable {
 		return result;
 	}
 
+	private static DBMessage selectCheckValidTableName(Database db, ArrayList<Rename> tables) {
+		ArrayList<String> newNameDupCheck = new ArrayList<String>();
+
+		for (Rename r : tables) {
+			Relation rel = Relation.db_search(db, r.tableName);
+			if (rel == null) {
+				return new DBMessage(MsgType.SelectTableExistenceError, r.tableName);
+			}
+
+			if (newNameDupCheck.contains(r.newName)) {
+				// TODO return some error
+				return null;
+			} else {
+				newNameDupCheck.add(r.newName);
+			}
+		}
+		return null;
+	}
+
+	private static Relation selectJoin(Database db, ArrayList<Rename> tables) {
+		Relation result = new Relation("--result");
+		Relation rtemp;
+
+		for (Rename r : tables) {
+			rtemp = Relation.db_search(db, r.tableName);
+			result = Relation.join(result, null, rtemp, r.newName);
+		}
+
+		return result;
+	}
+	
 	public static void db_insert(Database db, Relation r) {
 		DataManager.insert(db, r.getTableName(), DataManager.serialize(r));
 	}
@@ -590,4 +851,5 @@ public class Relation implements Serializable {
 	public static void db_delete(Database db, Relation r) {
 		DataManager.delete(db, r.getTableName());
 	}
+
 }

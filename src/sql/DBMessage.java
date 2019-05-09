@@ -18,11 +18,23 @@ public class DBMessage {
 		type = t;
 		count = cnt;
 	}
+	
+	public DBMessage(MsgType t, int cnt1, int cnt2) {
+		type = t;
+		count = cnt1;
+		count2 = cnt2;
+	}
 
 	public MsgType type;
 	public String identifier;
 	public int count;
+	public int count2;
 
+	private String DeleteReferentialIntegrityPassed() {
+		if (count2 == 0) return "";
+		else return "\n" + count2 + " row(s) are not deleted due to referential integrity";
+	}
+	
 	@Override
 	public String toString() {
 		switch (type) {
@@ -81,9 +93,7 @@ public class DBMessage {
 
 		// Delete
 		case DeleteResult:
-			return count + " row(s) are deleted";
-		case DeleteReferentialIntegrityPassed:
-			return count + " row(s) are not deleted due to referential integrity";
+			return count + " row(s) are deleted" + DeleteReferentialIntegrityPassed();
 
 		// Select
 		case SelectTableExistenceError:

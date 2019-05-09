@@ -28,6 +28,11 @@ public class ColValTuple {
 		columnName = col;
 	}
 	
+	public ColValTuple(String col, Value v) {
+		columnName = col;
+		value = v;
+	}
+	
 	public boolean isConstValue() {
 		return (value != null);
 	}
@@ -63,12 +68,20 @@ public class ColValTuple {
 		return ret;
 	}
 	
+	// Deep Copy
+	private ColValTuple(ColValTuple cv) {
+		tableName = (cv.tableName == null)? null : new String(cv.tableName);
+		columnName = (cv.columnName == null)? null : new String(cv.columnName);
+		value = (cv.value == null)? null : new Value(cv.value);
+		comparator = (cv.comparator == null)? null : cv.comparator;
+	}
+	
 	static ArrayList<ColValTuple> columnFilter(ArrayList<String> colList, ArrayList<ColValTuple> cvList) {
 		ArrayList<ColValTuple> retList = new ArrayList<ColValTuple>();
 		for (String col : colList) {
 			for (ColValTuple cv : cvList) {
 				if (col.equals(cv.columnName)) {
-					retList.add(cv);
+					retList.add(new ColValTuple(cv));
 				}
 			}
 		}

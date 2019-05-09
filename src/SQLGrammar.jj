@@ -77,17 +77,17 @@ public class SQLParser
     if (myDatabase != null) myDatabase.close();
     if (myDbEnvironment != null) myDbEnvironment.close();
   }
+  
 
-
-
-  // Query process for create table  public static DBMessage query_createTable(String table, ArrayList <Parse_Create> elements)
+  // Query process for create table  public static DBMessage query_createTable(String table, ArrayList<Attribute> colDefs, ArrayList<ArrayList<String>> primary, ArrayList<ForeignKeyConstraint> foreign)
   {
     // Check if there already exists a table with same name    if (db_checkTableExist(table)) {      return new DBMessage(MsgType.TableExistenceError);
     }
     
     Relation relation = new Relation(table);
+    
     DBMessage msg = null;
-    msg = relation.createSchema(myDatabase, elements);
+    msg = relation.createSchema(myDatabase, colDefs, primary, foreign);
     
     if (msg != null) {
       return msg;
@@ -100,9 +100,7 @@ public class SQLParser
 
   // Query process for drop table  public static DBMessage query_dropTable(String table)
   {
-    Relation relation = Relation.db_search(myDatabase, table);
-    
-    // Search if table exists    if (relation == null) {       return new DBMessage(MsgType.NoSuchTable);
+    Relation relation = Relation.db_search(myDatabase, table);    if (relation == null) {       return new DBMessage(MsgType.NoSuchTable);
     }
 
     DBMessage msg;
@@ -119,9 +117,7 @@ public class SQLParser
 
   // Query process for desc operation  public static DBMessage query_desc(String table)
   {
-    Relation relation = Relation.db_search(myDatabase, table);
-
-    // Check if there is no such table    if (relation == null) {      return new DBMessage(MsgType.NoSuchTable);
+    Relation relation = Relation.db_search(myDatabase, table);    if (relation == null) {      return new DBMessage(MsgType.NoSuchTable);
     }
 
     System.out.println(relation.describe());
@@ -133,9 +129,9 @@ public class SQLParser
   {
     ArrayList <String> tableList = db_getTableList();
     // If there is no table in database    if (tableList.size() == 0)
-    {
-      // Error Message ShowTablesNoTable      return new DBMessage(MsgType.ShowTablesNoTable);
+    {      return new DBMessage(MsgType.ShowTablesNoTable);
     }
+    
     System.out.println("----------------");
     for (String tableName : tableList)
     {
@@ -145,74 +141,44 @@ public class SQLParser
     return new DBMessage();
   }
 
-  // Query process for insert table  public static DBMessage query_insert(String table, Parse_Insert insertVal)
+  // Query process for insert table  public static DBMessage query_insert(String table, ArrayList<String> colList, ArrayList<Value> valList)
   {
     Relation relation = Relation.db_search(myDatabase, table);
-    
     if (relation == null) {
       return new DBMessage(MsgType.NoSuchTable);
     }
-
-    ArrayList<ColValTuple> cvList;
-
-    try { 
-      cvList = relation.insertParse(myDatabase, insertVal);
-    }
-    catch (MyException e) {
-      return e.getDBMessage();
-    }
     
-    relation.insertRecord(cvList);
+    DBMessage msg;
+    msg = relation.insertRecord(myDatabase, colList, valList);
+    
+	if (msg != null) {
+	  return msg;
+	}
+    
     Relation.db_replace(myDatabase, relation);    return new DBMessage(MsgType.InsertResult);
   }
 
   // Query process for delete table  public static DBMessage query_delete(String table, BooleanExpression where)
   {
-    DBMessage msg = new DBMessage(MsgType.NotImplemented);
-
     Relation relation = Relation.db_search(myDatabase, table);
     if (relation == null) {
       return new DBMessage(MsgType.NoSuchTable);
     }
 
-    ArrayList<Attribute> schema = relation.getSchema();
-    
-    ArrayList<ArrayList<Value>> searchResult;
-    
-    try {
-      searchResult = where.filter(relation);
-    }
-    catch (MyException e) {
-      return e.getDBMessage();
-    }
-    
-    // TODO    return msg;
+    DBMessage msg;
+    msg = relation.delete(myDatabase, where);
+        return msg;
   }
 
-  // Query process for select table  public static DBMessage query_select(Parse_Select input)
+  // Query process for select table  public static DBMessage query_select(ArrayList<Rename> selected, ArrayList<Rename> tables, BooleanExpression bxpr)
   {
-    // Delete
-    DBMessage msg = new DBMessage(MsgType.NotImplemented);
+    DBMessage msg;
+    msg = Relation.selectQuery(myDatabase, selected, tables, bxpr);
 
-	msg = db_selectValidCheck(input);
-	if (msg != null) {
-	  return msg;
-	}
-
-	Relation cartesian = db_selectJoin(input.tables);
-	ArrayList<ArrayList<Value>> searchResult = null;
-    
-	try {
-      searchResult = input.boolPredicate.filter(cartesian);
-	}
-	catch (MyException e) {
-	  return e.getDBMessage();
-	}
-
-    ArrayList<Integer> indexList = new ArrayList<Integer>();
-    ArrayList<ArrayList<Value>> selectedResult = db_columnSelect(input.selected, indexList, cartesian, searchResult);
-    db_printResult(input.selected, indexList, cartesian, selectedResult);
-        return null;
+    if (msg != null) {
+      return msg;
+    }
+        return new DBMessage(MsgType.NoMessage);
   }
 
   // Get Table List
@@ -244,159 +210,6 @@ public class SQLParser
   {
     ArrayList < String > tableList = db_getTableList();
     return tableList.contains(table);
-  }
-
-  private static DBMessage db_selectValidCheck(Parse_Select input) {
-    DBMessage msg = null;
-
-    for (Rename r : input.tables) {
-      if (!db_checkTableExist(r.tableName)) {
-        return new DBMessage(MsgType.SelectTableExistenceError, r.tableName);
-      }
-    }
-    
-    msg = input.validCheck();
-    if(msg != null) {
-      return msg;
-    }
-
-    return msg;
-  }
-
-  private static Relation db_selectJoin(ArrayList<Rename> tables) {
-    Relation result = new Relation("--result");
-    Relation rtemp;
-
-    for (Rename r : tables) {
-      rtemp = Relation.db_search(myDatabase, r.tableName);
-      result = Relation.join(result, null, rtemp, r.newName);
-    }
-    
-    return result;
-  }
-
-  private static ArrayList<ArrayList<Value>> db_columnSelect(ArrayList<Rename> selectList, ArrayList<Integer> indexList, Relation r, ArrayList<ArrayList<Value>> searchResult) {
-    ArrayList<Attribute> schema = r.getSchema();
-    int schemaSize = schema.size();
-
-    if (selectList == null) {
-      for (int i = 0; i < schemaSize; i++) {
-        indexList.add(i);
-      }
-      return searchResult;
-    }
-    
-    ArrayList<ArrayList<Value>> result = new ArrayList<ArrayList<Value>>();
-
-    String searchPattern;
-    for (Rename rename : selectList) {
-      searchPattern = (rename.tableName==null?"":rename.tableName) + "." + rename.columnName;
-      for (int idx = 0; idx < schema.size(); idx++) {
-        Attribute attr = schema.get(idx); 
-        if (Relation.lastMatch(attr.getName(), searchPattern) >= 0) {
-          indexList.add(idx);
-          break;
-        }
-      }
-    }
-
-    ArrayList<Value> entity;
-    for (ArrayList<Value> rec : searchResult) {
-      entity = new ArrayList<Value>();
-      for (int idx : indexList) {
-        entity.add(rec.get(idx));
-      }
-      result.add(entity);
-    }
-    
-    return result;
-  }
-  
-  private static void db_printResult(ArrayList<Rename> selectList, ArrayList<Integer> idxList, Relation r, ArrayList<ArrayList<Value>> searchResult) {
-    ArrayList<String> titleList = new ArrayList<String>();
-    ArrayList<Attribute> schema = r.getSchema();
-
-    Integer[] length = new Integer[idxList.size()];
-    
-    for (int i = 0; i < idxList.size(); i++) {
-      length[i] = schema.get(idxList.get(i)).getDefaultLength();
-    }
-    
-    if (selectList == null) {
-      for (int i = 0; i < idxList.size(); i++) {
-        titleList.add(schema.get(i).getName());
-        length[i] = MyCalc.max(length[i], titleList.get(i).length());
-      }
-    }
-    else {
-      for (int i = 0; i < selectList.size(); i++) {
-        Rename rename = selectList.get(i);
-        if (rename.newName != null) {
-          titleList.add(rename.newName);
-        }
-        else if (rename.tableName != null) {
-          titleList.add(rename.tableName + "." + rename.columnName);
-        }
-        else {
-          titleList.add(rename.columnName);
-        }
-        length[i] = MyCalc.max(length[i], titleList.get(i).length());
-      }
-    }
-    
-    int resultSize = searchResult.size();
-    int columnSize = titleList.size();
-    
-    for (int i = 0; i < columnSize; i++) {
-      for (int j = 0; j < resultSize; j++) {
-        length[i] = MyCalc.max(length[i], searchResult.get(j).get(i).getLength());
-      }
-    }
-
-    db_realPrint(titleList, length, searchResult);
-  }
-
-  private static void db_realPrint(ArrayList<String> title, Integer[] length, ArrayList<ArrayList<Value>> searchResult) {
-    int columnNum = title.size();
-    ArrayList<String> format = new ArrayList<String>();
-
-    for (int i = 0; i < columnNum; i++) {
-      String f = String.format(" %%-%ds ", length[i]);
-      format.add(f);
-    }
-
-    String border = "+";
-    for (int i = 0; i < columnNum; i++) {
-      for (int j = 0; j < length[i] + 2; j++) {
-        border = border + "-";
-      }
-      border = border + "+";
-    }
-
-    System.out.println(border);
-    
-    // Column Names
-    System.out.print("|");
-    for (int i = 0; i < columnNum; i++) {
-      System.out.printf(format.get(i), title.get(i));
-      System.out.print("|");
-    }
-    System.out.println();
-
-    System.out.println(border);
-
-    // Data
-    
-    for (int j = 0; j < searchResult.size(); j++) {
-      System.out.print("|");
-      for (int i = 0; i < columnNum; i++) {
-        System.out.printf(format.get(i), searchResult.get(j).get(i));
-        System.out.print("|");
-      }
-      System.out.println();
-    }
-
-    System.out.println(border);
   }
 }
 
@@ -547,126 +360,86 @@ DBMessage createTableQuery() :
 {
   DBMessage msg;
   String table;
-  ArrayList < Parse_Create > schema;
+  ArrayList<Attribute> colDefs = new ArrayList<Attribute>();
+  ArrayList<ArrayList<String>> primary = new ArrayList<ArrayList<String>>();
+  ArrayList<ForeignKeyConstraint> foreign = new ArrayList<ForeignKeyConstraint>();
+  // TODO ArrayList < Parse_Create > schema;
 }
 {
   < CREATE_TABLE > 
   table = tableName() 
-  schema = tableElementList() 
+  tableElementList(colDefs, primary, foreign) 
   < SEMICOLON >
   {
-    msg = query_createTable(table, schema);
+    msg = query_createTable(table, colDefs, primary, foreign);
     return msg;
   }
 }
 
-ArrayList <Parse_Create> tableElementList() :
-{
-  ArrayList < Parse_Create > tableElementList = new ArrayList < Parse_Create > ();
-  Parse_Create element;
-}
+void tableElementList(ArrayList<Attribute> colDefs, ArrayList<ArrayList<String>> primary, ArrayList<ForeignKeyConstraint> foreign) :
+{}
 {
   < LEFT_PAREN > 
-  element = tableElement()
-  {
-    tableElementList.add(element);
-  }
+  tableElement(colDefs, primary, foreign)
   (
     < COMMA > 
-    element = tableElement()
-    {
-      tableElementList.add(element);
-    }
+    tableElement(colDefs, primary, foreign)
   )*
   < RIGHT_PAREN >
-  {
-    return tableElementList;
-  }
 }
 
-Parse_Create tableElement() :
+void tableElement(ArrayList<Attribute> colDefs, ArrayList<ArrayList<String>> primary, ArrayList<ForeignKeyConstraint> foreign) :
+{}
 {
-  Parse_Create elem;
-}
-{
-  (
-    elem = columnDefinition()
-  | elem = tableConstraintDefinition()
-  )
-  {
-    return elem;
-  }
+    columnDefinition(colDefs)
+  | primaryKeyConstraint(primary)
+  | referentialConstraint(foreign)
 }
 
-Parse_Create columnDefinition() :
+void columnDefinition(ArrayList<Attribute> colDefs) :
 {
-  Parse_Create elem;
+  Attribute newAttr;
   String colName;
-  boolean nullable = true;
 }
 {
-  colName = columnName() 
-  elem = dataType() 
+  colName = columnName()
+  { newAttr = new Attribute(colName); }
+  dataType(newAttr)
   (
-  < NOT > 
-  < NULL >
-  {
-    nullable = false;
-  }
+    < NOT > 
+    < NULL >
+    { newAttr.setNullable(false); }
   )?
-  {
-    elem.columnName = colName;
-    elem.nullable = nullable;
-    return elem;
-  }
+  { colDefs.add(newAttr); }
 }
 
-Parse_Create tableConstraintDefinition() :
+void primaryKeyConstraint(ArrayList<ArrayList<String>> primary) :
 {
-  Parse_Create elem;
-}
-{
-  (
-    elem = primaryKeyConstraint()
-  | elem = referentialConstraint()
-  )
-  {
-    return elem;
-  }
-}
-
-Parse_Create primaryKeyConstraint() :
-{
-  ArrayList < String > colList;
+  ArrayList <String> colList = new ArrayList<String>();
 }
 {
   < PRIMARY_KEY > 
-  colList = columnNameList()
-  {
-    return new Parse_Create(colList);
-  }
+  columnNameList(colList)
+  { primary.add(colList); }
 }
 
-Parse_Create referentialConstraint() :
+void referentialConstraint(ArrayList<ForeignKeyConstraint> foreign) :
 {
   String table;
-  ArrayList < String > foreignColList;
-  ArrayList < String > refColList;
+  ArrayList <String> foreignColList = new ArrayList<String>();
+  ArrayList <String> refColList = new ArrayList<String>();
 }
 {
   < FOREIGN_KEY > 
-  foreignColList = columnNameList() 
+  columnNameList(foreignColList) 
   < REFERENCES > 
-  table = tableName() 
-  refColList = columnNameList()
-  {
-    return new Parse_Create(foreignColList, table, refColList);
-  }
+  table = tableName()
+  columnNameList(refColList)
+  { foreign.add(new ForeignKeyConstraint(foreignColList, table, refColList)); }
 }
 
-ArrayList < String > columnNameList() :
+void columnNameList(ArrayList<String> colList) :
 {
-  ArrayList < String > colList = new ArrayList < String > ();
   String elem;
 }
 {
@@ -683,20 +456,15 @@ ArrayList < String > columnNameList() :
     }
   )*
   < RIGHT_PAREN >
-  {
-    return colList;
-  }
 }
 
-Parse_Create dataType() :
+void dataType(Attribute attr) :
 {
   Token intval;
 }
 {
   < INT >
-  {
-    return new Parse_Create(DataType.TYPE_INT);
-  }
+  { attr.setDataType(DataType.TYPE_INT); }
 |
   (
     < CHAR > 
@@ -704,13 +472,12 @@ Parse_Create dataType() :
     intval = < INT_VALUE > 
     < RIGHT_PAREN >
     {
-      return new Parse_Create(DataType.TYPE_CHAR, Integer.parseInt(intval.image));
+      attr.setDataType(DataType.TYPE_CHAR);
+      attr.setCharLength(Integer.parseInt(intval.image));
     }
   )
 | < DATE >
-  {
-    return new Parse_Create(DataType.TYPE_DATE);
-  }
+  { attr.setDataType(DataType.TYPE_DATE); }
 }
 
 String tableName() :
@@ -797,7 +564,7 @@ DBMessage selectQuery() :
   )?
   < SEMICOLON >
   {
-    msg = query_select(new Parse_Select(selected, tables, boolExpr));
+    msg = query_select(selected, tables, boolExpr);
     return msg;
   }
 }
@@ -1060,38 +827,33 @@ DBMessage insertQuery() :
 {
   DBMessage msg;
   String table;
-  Parse_Insert insertVal;
+  ArrayList<String> colList = new ArrayList<String>();
+  ArrayList<Value> valList = new ArrayList<Value>();
 }
 {
   < INSERT_INTO > 
   table = tableName() 
-  insertVal = insertColumnsAndSource() 
+  insertColumnsAndSource(colList, valList) 
   < SEMICOLON >
   {
-    msg = query_insert(table, insertVal);
+    msg = query_insert(table, colList, valList);
     return msg;
   }
 }
 
-Parse_Insert insertColumnsAndSource() :
+void insertColumnsAndSource(ArrayList<String> colList, ArrayList<Value> valList) :
 {
-  ArrayList<String> colList = null;
-  ArrayList<Value> valList = null;
   Relation r;
 }
 {
   (
-    colList = columnNameList()
+    columnNameList(colList)
   )?
-  valList = valueList()
-  {
-    return new Parse_Insert(colList, valList);
-  }
+  valueList(valList)
 }
 
-ArrayList<Value> valueList() :
+void valueList(ArrayList<Value> valList) :
 {
-  ArrayList<Value> valList = new ArrayList<Value>();
   Value val;
 }
 {
@@ -1099,27 +861,16 @@ ArrayList<Value> valueList() :
   < LEFT_PAREN > 
   val = value()
   {
-    if (val == null) {
-      valList.add(new Value());
-    }
-    else {
-      valList.add(val);
-    }
+    valList.add(val);
   }    
   (
     < COMMA > 
     val = value()
     {
-      if (val == null) {
-        valList.add(new Value());
-      }
-      else {
-        valList.add(val);
-      }
+      valList.add(val);
     }
   )*
   < RIGHT_PAREN >
-  { return valList; }
 }
 
 Value value() :

@@ -32,6 +32,13 @@ public class Value implements Comparable<Value>, Serializable {
 		type = DataType.TYPE_DATE;
 		dateVal = d;
 	}
+	
+	public Value(Value v) {
+		type = v.type;
+		intVal = (v.intVal == null)? null : new Integer(v.intVal);
+		strVal = (v.strVal == null)? null : new String(v.strVal);
+		dateVal = (v.dateVal == null)? null : new Date(v.dateVal);
+	}
 
 	public boolean isNull() {
 		if (type == DataType.TYPE_INT && intVal == null) return true;

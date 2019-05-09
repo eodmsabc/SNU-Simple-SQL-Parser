@@ -16,8 +16,9 @@ public class Attribute implements Serializable {
 	private String refTable;
 	private String refColumn;
 
-	private Attribute(String attrName) {
+	public Attribute(String attrName) {
 		name = attrName;
+		nullable = true;
 	}
 	
 	public Attribute(String attrName, DataType dataType, boolean nullable) {
@@ -54,13 +55,25 @@ public class Attribute implements Serializable {
 	public DataType getDataType() {
 		return dataType;
 	}
+	
+	public void setDataType(DataType d) {
+		dataType = d;
+	}
 
 	public int getCharLength() {
 		return charLength;
 	}
+	
+	public void setCharLength(int cl) {
+		charLength = cl;
+	}
 
 	public boolean isNullable() {
 		return nullable;
+	}
+	
+	public void setNullable(boolean n) {
+		nullable = n;
 	}
 	
 	public boolean isPrimary() {

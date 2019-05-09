@@ -37,7 +37,7 @@ public enum MsgType {
 	
 	// Delete
 	DeleteResult, // deleted count (String or int)
-	DeleteReferentialIntegrityPassed,	// not deleted due to referential integrity
+	//DeleteReferentialIntegrityPassed,	// not deleted due to referential integrity / treat separately
 	
 	// Select
 	SelectTableExistenceError,	// tableName (String)

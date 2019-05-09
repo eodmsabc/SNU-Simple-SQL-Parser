@@ -138,12 +138,11 @@ public class Predicate {
 		int size = schema.size();
 		int index = -1;
 		int tableIndex = 1;
-		boolean self = (col.indexOf('-') < 0);
+		boolean self = (col.indexOf('.') < 0);
 		String colName;
 		
 		for(int idx = 0; idx < size; idx++) {
 			colName = schema.get(idx).getName();
-			
 			boolean match = self? colName.equals(col) : (Relation.lastMatch(colName, col) >= 0);
 			if (match) {
 				if (index < 0) {
