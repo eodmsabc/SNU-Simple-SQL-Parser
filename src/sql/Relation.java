@@ -448,9 +448,15 @@ public class Relation implements Serializable {
 		int cancelCount = 0;
 
 		ArrayList<ArrayList<Value>> searchResult;
+		ArrayList<ArrayList<Value>> removeList = new ArrayList<ArrayList<Value>>();
 
 		try {
-			searchResult = where.filter(this);
+			if (where == null) {
+				searchResult = records;
+			}
+			else {
+				searchResult = where.filter(this);
+			}
 		} catch (MyException e) {
 			return e.getDBMessage();
 		}
@@ -464,9 +470,9 @@ public class Relation implements Serializable {
 			
 			// Integrity violation check
 			boolean noViolation;
-			
+
 			noViolation = checkNoReferentialIntegrityViolation(db, myPKey);
-			
+
 			if (noViolation) {
 
 				if (pKeys.size() > 0) {
@@ -475,13 +481,17 @@ public class Relation implements Serializable {
 						refRel.cascadeDeletion(tableName, myPKey);
 					}
 				}
-				
-				records.remove(rec);
+				// delete while iterates
+				removeList.add(rec);
 				deleteCount++;
 			}
 			else {
 				cancelCount++;
 			}
+		}
+		for (ArrayList<Value> rec : removeList) {
+			boolean t = searchResult.remove(rec);
+			System.out.println(t);
 		}
 		
 		return new DBMessage(MsgType.DeleteResult, deleteCount, cancelCount);
@@ -821,7 +831,9 @@ public class Relation implements Serializable {
 			if (rel == null) {
 				return new DBMessage(MsgType.SelectTableExistenceError, r.tableName);
 			}
-
+			
+			if (r.newName == null) continue;
+			
 			if (newNameDupCheck.contains(r.newName)) {
 				// TODO return some error
 				return new DBMessage(MsgType.WhereAmbiguousReference);
