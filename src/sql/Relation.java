@@ -6,6 +6,7 @@ import com.sleepycat.je.Database;
 
 public class Relation implements Serializable {
 	private static final long serialVersionUID = 1L;
+	private static String EMPTY_RELATION = "--empty";
 
 	private String tableName;
 	private ArrayList<Attribute> schema;
@@ -23,6 +24,10 @@ public class Relation implements Serializable {
 
 	public String getTableName() {
 		return tableName;
+	}
+	
+	boolean isEmptyRelation() {
+		return tableName.equals(EMPTY_RELATION);
 	}
 
 	public ArrayList<Attribute> getSchema() {
@@ -46,12 +51,22 @@ public class Relation implements Serializable {
 	}
 
 	public Attribute getAttribute(String colName) {
-		for (Attribute attr : schema) {
-			if (attr.getName().equals(colName)) {
-				return attr;
+		if (colName.indexOf('.') < 0) {	// only column name
+			for (Attribute attr : schema) {
+				if (attr.getName().equals(colName)) {
+					return attr;
+				}
 			}
+			return null;
 		}
-		return null;
+		else {	// with table name
+			for (Attribute attr : schema) {
+				if (attr.getFullName().equals(colName)) {
+					return attr;
+				}
+			}
+			return null;
+		}
 	}
 
 	public ArrayList<String> getColumnList() {
@@ -76,13 +91,19 @@ public class Relation implements Serializable {
 
 	public int getIndexByColumnName(String col) {
 		int size = schema.size();
+		int ret = -1;
 		for (int idx = 0; idx < size; idx++) {
 			Attribute attr = schema.get(idx);
-			if (col.equals(attr.getName())) {
-				return idx;
+			if (attr.nameMatch(col)) {
+				if (ret == -1) {
+					ret = idx;
+				}
+				else {
+					return -2;
+				}
 			}
 		}
-		return -1;
+		return ret;
 	}
 
 	public DBMessage createSchema(Database db, ArrayList<Attribute> colDefs, ArrayList<ArrayList<String>> primary, ArrayList<ForeignKeyConstraint> fKeyConstraints) {
@@ -105,6 +126,7 @@ public class Relation implements Serializable {
 					return new DBMessage(MsgType.CharLengthError);
 				}
 			}
+			attr.setFullName(tableName);
 			addAttribute(attr);
 		}
 		
@@ -205,13 +227,13 @@ public class Relation implements Serializable {
 	}
 
 	private boolean setPrimary(String colName) {
-		for (Attribute attr : schema) {
-			if (colName.equals(attr.getName())) {
-				attr.setPrimary();
-				return true;
-			}
+		Attribute attr = getAttribute(colName);
+		if (attr == null) {
+			return false;
 		}
-		return false;
+		
+		attr.setPrimary();
+		return true;
 	}
 
 	boolean setForeign(String colName, String refTable, String refCol) {
@@ -225,13 +247,13 @@ public class Relation implements Serializable {
 	}
 
 	String getRefTableOfKey(String foreignKey) {
-		String refTable = null;
-		for (Attribute attr : schema) {
-			if (foreignKey.equals(attr.getName())) {
-				refTable = attr.getRefTable();
-			}
+		Attribute attr = getAttribute(foreignKey);
+		if (attr == null) {
+			return null;
 		}
-		return refTable;
+		else {
+			return attr.getRefTable();
+		}
 	}
 
 	public ArrayList<String> getReferingTableList() {
@@ -307,7 +329,7 @@ public class Relation implements Serializable {
 		int schemaSize = schema.size();
 		ArrayList<ColValTuple> retList = new ArrayList<ColValTuple>();
 		for (int i = 0; i < schemaSize; i++) {
-			retList.add(new ColValTuple(schema.get(i).getName()));
+			retList.add(new ColValTuple(tableName, schema.get(i).getName()));
 		}
 		
 		int colSize = colList.size();
@@ -443,7 +465,7 @@ public class Relation implements Serializable {
 		return Relation.generateCheckExpr(pKeyTuple);
 	}
 	
-	public DBMessage delete(Database db, BooleanExpression where) {
+	public DBMessage delete(Database db, BooleanExpression where) throws MyException {
 		int deleteCount = 0;
 		int cancelCount = 0;
 
@@ -458,7 +480,7 @@ public class Relation implements Serializable {
 				searchResult = where.filter(this);
 			}
 		} catch (MyException e) {
-			return e.getDBMessage();
+			throw e;
 		}
 
 		for (ArrayList<Value> rec : searchResult) {
@@ -481,7 +503,7 @@ public class Relation implements Serializable {
 						refRel.cascadeDeletion(tableName, myPKey);
 					}
 				}
-				// delete while iterates
+
 				removeList.add(rec);
 				deleteCount++;
 			}
@@ -489,9 +511,9 @@ public class Relation implements Serializable {
 				cancelCount++;
 			}
 		}
+		
 		for (ArrayList<Value> rec : removeList) {
-			boolean t = searchResult.remove(rec);
-			System.out.println(t);
+			records.remove(rec);
 		}
 		
 		return new DBMessage(MsgType.DeleteResult, deleteCount, cancelCount);
@@ -567,18 +589,18 @@ public class Relation implements Serializable {
 		return result;
 	}
 	
-	DBMessage select(ArrayList<Rename> selected, BooleanExpression bxpr) throws MyException {
+	DBMessage select(ArrayList<Rename> selected, BooleanExpression bxpr) {
 		ArrayList<ArrayList<Value>> searchResult = null;
-		
-		if (bxpr == null) {
-			searchResult = records;
-		} else {
-			searchResult = bxpr.filter(this);
-		}
-		
 		ArrayList<Integer> indexList = new ArrayList<Integer>();
 		ArrayList<ArrayList<Value>> selectedResult = null;
+		
 		try {
+			if (bxpr == null) {
+				searchResult = records;
+			} else {
+				searchResult = bxpr.filter(this);
+			}
+		
 			selectedResult = selectColumn(selected, searchResult, indexList);
 		} catch (MyException e) {
 			return e.getDBMessage();
@@ -602,16 +624,12 @@ public class Relation implements Serializable {
 
 		String searchPattern;
 		for (Rename rename : sList) {
-			searchPattern = (rename.tableName == null ? "" : rename.tableName) + "." + rename.columnName;
-			for (int idx = 0; idx < schema.size(); idx++) {
-				Attribute attr = schema.get(idx);
-				if (Relation.lastMatch(attr.getName(), searchPattern) >= 0) {
-					iList.add(idx);
-					break;
-				} else {
-					throw new MyException(MsgType.SelectColumnResolveError, (rename.tableName == null? rename.columnName : searchPattern));
-				}
+			searchPattern = (rename.tableName == null ? "" : rename.tableName + ".") + rename.columnName;
+			int idx = getIndexByColumnName(searchPattern);
+			if (idx < 0) {
+				throw new MyException(MsgType.SelectColumnResolveError, searchPattern);
 			}
+			iList.add(getIndexByColumnName(searchPattern));
 		}
 
 		ArrayList<Value> entity;
@@ -637,18 +655,16 @@ public class Relation implements Serializable {
 
 		if (selectList == null) {
 			for (int i = 0; i < idxList.size(); i++) {
-				titleList.add(schema.get(i).getName());
+				titleList.add(schema.get(i).getName().toUpperCase());
 				length[i] = MyCalc.max(length[i], titleList.get(i).length());
 			}
 		} else {
 			for (int i = 0; i < selectList.size(); i++) {
 				Rename rename = selectList.get(i);
 				if (rename.newName != null) {
-					titleList.add(rename.newName);
-				} else if (rename.tableName != null) {
-					titleList.add(rename.tableName + "." + rename.columnName);
+					titleList.add(rename.newName.toUpperCase());
 				} else {
-					titleList.add(rename.columnName);
+					titleList.add(rename.columnName.toUpperCase());
 				}
 				length[i] = MyCalc.max(length[i], titleList.get(i).length());
 			}
@@ -721,7 +737,7 @@ public class Relation implements Serializable {
 		
 		return new BooleanExpression(node);
 	}
-	
+	/*
 	public static int lastMatch(String orig, String pattern) {
 		int idx = orig.indexOf(pattern);
 
@@ -734,7 +750,8 @@ public class Relation implements Serializable {
 			return -1;
 		}
 	}
-
+*/
+	
 	public static DBMessage selectQuery(Database db, ArrayList<Rename> selected, ArrayList<Rename> tables, BooleanExpression bxpr) {
 		DBMessage msg;
 
@@ -745,11 +762,7 @@ public class Relation implements Serializable {
 
 		Relation cartesian = Relation.selectJoin(db, tables);
 		
-		try {
-			msg = cartesian.select(selected,  bxpr);
-		} catch (MyException e) {
-			return e.getDBMessage();
-		}
+		msg = cartesian.select(selected, bxpr);
 		
 		if (msg != null) {
 			return msg;
@@ -775,23 +788,17 @@ public class Relation implements Serializable {
 		// Generate Schema
 		ArrayList<Attribute> schema1 = r1.getSchema();
 		ArrayList<Attribute> schema2 = r2.getSchema();
-		int ssize1 = schema1.size();
-		int ssize2 = schema2.size();
-		String temp;
+		Attribute newAttr;
 
-		for (int i = 0; i < ssize1; i++) {
-			temp = schema1.get(i).getName();
-			if (r1.getTableName().charAt(0) != '-') {
-				temp = newTable1 + "." + temp;
-			}
-			schema.add(schema1.get(i).copyAttribute(temp));
+		for (Attribute attr : schema1) {
+			newAttr = attr.copyAttribute();
+			newAttr.setFullName(newTable1);
+			schema.add(newAttr);
 		}
-		for (int j = 0; j < ssize2; j++) {
-			temp = schema2.get(j).getName();
-			if (r2.getTableName().charAt(0) != '-') {
-				temp = newTable2 + "." + temp;
-			}
-			schema.add(schema2.get(j).copyAttribute(temp));
+		for (Attribute attr : schema2) {
+			newAttr = attr.copyAttribute();
+			newAttr.setFullName(newTable2);
+			schema.add(newAttr);
 		}
 
 		// Generate Record Table
@@ -802,7 +809,7 @@ public class Relation implements Serializable {
 
 		ArrayList<Value> newEntity;
 
-		if (rsize1 == 0) {
+		if (r1.isEmptyRelation()) {
 			for (int j = 0; j < rsize2; j++) {
 				newEntity = new ArrayList<Value>();
 				newEntity.addAll(record2.get(j));
@@ -845,7 +852,7 @@ public class Relation implements Serializable {
 	}
 
 	private static Relation selectJoin(Database db, ArrayList<Rename> tables) {
-		Relation result = new Relation("--result");
+		Relation result = new Relation(EMPTY_RELATION);
 		Relation rtemp;
 
 		for (Rename r : tables) {

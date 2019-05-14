@@ -24,10 +24,6 @@ public class ColValTuple {
 		columnName = c;
 	}
 	
-	public ColValTuple(String col) {
-		columnName = col;
-	}
-	
 	public ColValTuple(String col, Value v) {
 		columnName = col;
 		value = v;

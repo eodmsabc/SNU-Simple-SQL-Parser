@@ -8,6 +8,7 @@ public class Attribute implements Serializable {
 	public static final String SCHEMA_FORMAT = "%-30s%-20s%-10s%-10s";
 
 	private String name;
+	private String fullName;
 	private DataType dataType;
 	private int charLength;
 	private boolean nullable;
@@ -36,8 +37,9 @@ public class Attribute implements Serializable {
 		charLength = charlen;
 	}
 	
-	public Attribute copyAttribute(String newName) {
-		Attribute attr = new Attribute(newName);
+	public Attribute copyAttribute() {
+		Attribute attr = new Attribute(this.name);
+		attr.fullName = this.fullName;
 		attr.dataType = this.dataType;
 		attr.charLength = this.charLength;
 		attr.nullable = this.nullable;
@@ -50,6 +52,29 @@ public class Attribute implements Serializable {
 
 	public String getName() {
 		return name;
+	}
+	
+	public void setFullName(String tableName) {
+		fullName = tableName + "." + name;
+	}
+	
+	public String getFullName() {
+		return fullName;
+	}
+	
+	public String getTableName() {
+		int idx = fullName.indexOf('.');
+		if (idx < 0) return null;
+		else return fullName.substring(0, idx);
+	}
+	
+	public boolean nameMatch(String col) {
+		if (col.indexOf('.') < 0) {
+			return name.equals(col);
+		}
+		else {
+			return fullName.equals(col);
+		}
 	}
 
 	public DataType getDataType() {

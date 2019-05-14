@@ -166,7 +166,15 @@ public class SQLParser
     }
 
     DBMessage msg;
-    msg = relation.delete(myDatabase, where);
+
+    try { 
+      msg = relation.delete(myDatabase, where);
+    }
+    catch (MyException e) {
+      return e.getDBMessage();
+    }
+
+    Relation.db_replace(myDatabase, relation);
         return msg;
   }
 

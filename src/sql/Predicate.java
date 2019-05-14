@@ -25,7 +25,6 @@ public class Predicate {
 	public Predicate(ColValTuple insert) {
 		this(Comparator.EQ);
 		v[0] = insert.value;
-		t[1] = "-";
 		c[1] = insert.columnName;
 	}
 	
@@ -54,12 +53,6 @@ public class Predicate {
 	
 	private boolean isConst(int i) {
 		return (v[i] != null);
-	}
-	
-	public String tableCol(int i) {
-		if (t[i] == null) return "." + c[i];
-		else if (t[i].charAt(0) == '-') return c[i];
-		else return t[i] + "."  + c[i];
 	}
 	
 	public int evaluate(ArrayList<Value> rec, ArrayList<Attribute> schema) throws MyException {
@@ -131,19 +124,18 @@ public class Predicate {
 	
 	private Value findValue(int i, ArrayList<Value> rec, ArrayList<Attribute> schema) throws MyException {
 		if (t[i] == null && c[i] == null) {
+			System.out.println("Fuck");
 			return new Value();
 		}
 		
-		String col = tableCol(i);
+		String col = (t[i] == null)? c[i] : (t[i] + "." + c[i]);
 		int size = schema.size();
 		int index = -1;
-		int tableIndex = 1;
-		boolean self = (col.indexOf('.') < 0);
-		String colName;
+		boolean tableSpecified = t[i]==null? true : false;
 		
 		for(int idx = 0; idx < size; idx++) {
-			colName = schema.get(idx).getName();
-			boolean match = self? colName.equals(col) : (Relation.lastMatch(colName, col) >= 0);
+			Attribute attr = schema.get(idx);
+			boolean match = attr.nameMatch(col);
 			if (match) {
 				if (index < 0) {
 					index = idx;
@@ -152,15 +144,14 @@ public class Predicate {
 					throw new MyException(MsgType.WhereAmbiguousReference);
 				}
 			}
-			else if (t[i] != null && !t[i].equals("-")) {
-				if (tableIndex == 1) tableIndex = -1;
-				if(colName.substring(0, colName.indexOf('.')).equals(t[i])) {
-					tableIndex = 0;
+			else if (t[i] != null) {
+				if(attr.getTableName().equals(t[i])) {
+					tableSpecified = true;
 				}
 			}
 		}
 		
-		if (tableIndex < 0) {
+		if (!tableSpecified) {
 			throw new MyException(MsgType.WhereTableNotSpecified);
 		}
 		
