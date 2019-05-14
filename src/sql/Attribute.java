@@ -17,6 +17,7 @@ public class Attribute implements Serializable {
 	private String refTable;
 	private String refColumn;
 
+	// Constructors
 	public Attribute(String attrName) {
 		name = attrName;
 		nullable = true;
@@ -50,11 +51,13 @@ public class Attribute implements Serializable {
 		return attr;
 	}
 
+	// Getter, setter and few trivial methods
 	public String getName() {
 		return name;
 	}
 	
 	public void setFullName(String tableName) {
+		if (tableName.equals(Relation.RESULT_RELATION)) return;
 		fullName = tableName + "." + name;
 	}
 	
@@ -127,18 +130,8 @@ public class Attribute implements Serializable {
 	public String getRefColumn() {
 		return refColumn;
 	}
-
-	public int getDefaultLength() {
-		switch(dataType) {
-		case TYPE_CHAR:
-			return charLength;
-		case TYPE_DATE:
-			return 10;
-		default:
-			return 1;
-		}
-	}
 	
+	// For desc query
 	@Override
 	public String toString() {
 		String type = null;
@@ -166,6 +159,7 @@ public class Attribute implements Serializable {
 		return String.format(SCHEMA_FORMAT, name, type, (nullable ? "Y" : "N"), key);
 	}
 
+	// Check type of value
 	public DBMessage typeCheck(Value val) {
 		if (val.isNull()) {
 			if (!nullable) {
@@ -179,14 +173,15 @@ public class Attribute implements Serializable {
 		}
 		
 		if (dataType == DataType.TYPE_CHAR) {
-			if (val.strVal.length() != charLength) {
-				return new DBMessage(MsgType.InsertTypeMismatchError);
+			if (val.strVal.length() > charLength) {
+				val.strVal = val.strVal.substring(0, charLength);
 			}
 		}
 		
 		return null;
 	}
 	
+	// Check types of two different attributes
 	public static boolean checkTypeMatch(Attribute a, Attribute b) {
 		if (a.getDataType() == b.getDataType()) {
 			if (a.getDataType() == DataType.TYPE_CHAR) {

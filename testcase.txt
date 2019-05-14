@@ -1,0 +1,84 @@
+create table a (c int);
+desc a;
+create table b (c int, d char(4), primary key(c));
+desc b;
+create table c (c char(3), d int not null, foreign key (d) references b (c));
+desc c;
+create table d (c char(4), d date, e int, primary key(c, d, e), foreign key (e) references b (c));
+desc d;
+drop table c;
+create table e (c int, d date, e char(4), primary key(c, d, e), foreign key(c) references b (c));
+create table f (g int, h char(4), i date, foreign key(h, g, i) references e (e, c, d));
+create table g (c int, d date, e char(4), f int, primary key(c, f), foreign key(c, d, e) references e(c, d, e), foreign key(f) references b(c));
+desc g;
+show tables;
+
+drop table b;
+create table b (c int, d char(4), primary key(c));
+create table h (c int, c date);
+create table h (c int, d date, e char(3), foreign key(c, d, e) references e (c, d, e));
+create table h (d char(4), foreign key(d) references b(d));
+create table h (c int, d date, foreign key(c, d) references e(c, d));
+create table h (c int, d date, primary key(c), primary key(d));
+create table h (c int, primary key(d));
+create table h (c int, foreign key(d) references b(c));
+create table h (c int, foreign key(c) references z(c));
+create table h (c int, foreign key(c) references b(e));
+
+drop table g;
+drop table f;
+drop table e;
+drop table d;
+drop table b;
+drop table a;
+
+
+create table a (c int);
+insert into a values (3);
+insert into a values (4);
+insert into a values (3);
+
+select * from a;
+select c as newcol from a;
+select c as newcol from a where c=4;
+select c as newcol from a as f where f.c=4;
+select d from a;
+select c from b;
+select c from a as f where a.c=4;
+
+insert into a values('3');
+delete from a where c=3;
+insert into a values(3);
+insert into a values(5);
+
+create table b (c int, d char(4), e date, primary key(c, d));
+insert into b values (3, 'aaaa', 2019-05-14);
+insert into b (d, e, c) values ('bbbb', 2019-05-14, 4);
+insert into b (d, c) values ('aaaa', 4);
+
+select * from b where e=2019-05-15;
+select * from b where not e=2019-05-15;
+
+create table c (d char(4), c int, e int, foreign key(d, c) references b(d, c));
+insert into c values('aaaaa', 3, 7);
+insert into c (c, d) values(3, 'aaaa');
+select * from c;
+
+delete from b where c=3;
+select * from b;
+select * from c;
+select * from c where d is null and e=7;
+select * from c where d is null or e='abc';
+ 
+select * from c where d=3 or e='abc';
+delete from c where d is null and e is not null;
+insert into c(c, d, e) values(9, 'bc', 10);
+
+create table d (c int not null, d char(4), e int, foreign key(c, d) references b (c, d));
+insert into b values(1, 'a', 1111-11-11);
+insert into b values(2, 'a', 1111-11-11);
+insert into c values('a', 2, 8);
+insert into d values(1, 'a', 7);
+delete from b where e=1111-11-11;
+delete from d where c=1;
+delete from b where c=1;

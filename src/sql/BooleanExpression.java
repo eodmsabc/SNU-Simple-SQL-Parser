@@ -9,11 +9,12 @@ public class BooleanExpression {
 		root = node;
 	}
 	
+	// Return filtered records
 	public ArrayList<ArrayList<Value>> filter(Relation r) throws MyException {
 		if (root == null) {
 			return r.getRecords();
 		}
-		
+
 		int check;
 		ArrayList<Attribute> schema = r.getSchema();
 		ArrayList<ArrayList<Value>> records = r.getRecords();
@@ -33,5 +34,16 @@ public class BooleanExpression {
 			throw e;
 		}
 		return result;
+	}
+	
+	// For debugging
+	@Override
+	public String toString() {
+		if (root == null) {
+			return "true";
+		}
+		else {
+			return root.toString();
+		}
 	}
 }

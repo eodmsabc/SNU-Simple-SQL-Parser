@@ -23,7 +23,7 @@ public class Date implements Comparable<Date>, Serializable {
 	int date;
 	
 	public int getValue() {
-		// What about calculating actual date difference
+		// Convert into 8-digits integer for comparison
 		return year * 10000 + month * 100 + date;
 	}
 	

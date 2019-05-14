@@ -122,13 +122,14 @@ public class Predicate {
 		return retval;
 	}
 	
+	// Get value from rec which specified from tableName t[i] and columnName c[i]
 	private Value findValue(int i, ArrayList<Value> rec, ArrayList<Attribute> schema) throws MyException {
 		if (t[i] == null && c[i] == null) {
 			System.out.println("Fuck");
 			return new Value();
 		}
 		
-		String col = (t[i] == null)? c[i] : (t[i] + "." + c[i]);
+		String col = makeFullName(i);
 		int size = schema.size();
 		int index = -1;
 		boolean tableSpecified = t[i]==null? true : false;
@@ -137,6 +138,7 @@ public class Predicate {
 			Attribute attr = schema.get(idx);
 			boolean match = attr.nameMatch(col);
 			if (match) {
+				tableSpecified = true;
 				if (index < 0) {
 					index = idx;
 				}
@@ -150,7 +152,6 @@ public class Predicate {
 				}
 			}
 		}
-		
 		if (!tableSpecified) {
 			throw new MyException(MsgType.WhereTableNotSpecified);
 		}
@@ -161,5 +162,52 @@ public class Predicate {
 		
 		type[i] = schema.get(index).getDataType();
 		return rec.get(index);
+	}
+	
+	private String makeFullName(int i) {
+		if (t[i] == null) {
+			return c[i];
+		}
+		else {
+			return t[i] + "." + c[i];
+		}
+	}
+	
+	// For debugging
+	private String operandToString(int i) {
+		if (v[i] == null) {
+			return makeFullName(i);
+		}
+		else {
+			if (v[i].type == DataType.TYPE_CHAR) {
+				return "'" + v[i] + "'";
+			}
+			else {
+				return v[i].toString();
+			}
+		}
+	}
+	
+	// For debugging
+	@Override
+	public String toString() {
+		switch(op) {
+		case IN:
+			return "(" + makeFullName(0) + " is null)";
+		case INN:
+			return "(" + makeFullName(0) + " is not null)";
+		case EQ:
+			return "(" + operandToString(0) + "=" + operandToString(1) + ")";
+		case NEQ:
+			return "(" + operandToString(0) + "!=" + operandToString(1) + ")";
+		case LT:
+			return "(" + operandToString(0) + "<" + operandToString(1) + ")";
+		case LTE:
+			return "(" + operandToString(0) + "<=" + operandToString(1) + ")";
+		case GT:
+			return "(" + operandToString(0) + ">" + operandToString(1) + ")";
+		default:
+			return "(" + operandToString(0) + ">=" + operandToString(1) + ")";
+		}
 	}
 }

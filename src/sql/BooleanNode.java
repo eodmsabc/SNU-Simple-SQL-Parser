@@ -21,6 +21,7 @@ public class BooleanNode {
 		predicate = p;
 	}
 	
+	// Evaluate for one record entity 'rec'
 	public int evaluate(ArrayList<Value> rec, ArrayList<Attribute> schema) throws MyException {
 		int retval;
 		try {
@@ -30,14 +31,16 @@ public class BooleanNode {
 					break;
 				case B_AND:
 					retval = b1.evaluate(rec, schema);
-					if (retval != -1) {
+					if (retval != -1)	// Short Circuit Evaluation
+					{
 						retval = MyCalc.and(retval, b2.evaluate(rec, schema));
 					}
 					break;
 				case B_OR:
 					retval = b1.evaluate(rec, schema);
-					if (retval != 1) {
-						retval = MyCalc.and(retval, b2.evaluate(rec, schema));
+					if (retval != 1)	// Short Circuit Evaluation
+					{
+						retval = MyCalc.or(retval, b2.evaluate(rec, schema));
 					}
 					break;
 				default:
@@ -50,6 +53,21 @@ public class BooleanNode {
 		}
 		
 		return retval;
+	}
+	
+	// For debugging
+	@Override
+	public String toString() {
+		switch(type) {
+		case B_NOT:
+			return "(!" + b1.toString() + ")";
+		case B_AND:
+			return "(" + b1.toString() + "&&" + b2.toString() + ")";
+		case B_OR:
+			return "(" + b1.toString() + "||" + b2.toString() + ")";
+		default:
+			return predicate.toString();
+		}
 	}
 }
 

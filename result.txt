@@ -1,0 +1,95 @@
+DB_TESTPROMPT> 'a' table is created
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> +---+
+| C |
++---+
+| 3 |
+| 4 |
+| 3 |
++---+
+DB_TESTPROMPT> +--------+
+| NEWCOL |
++--------+
+| 3      |
+| 4      |
+| 3      |
++--------+
+DB_TESTPROMPT> +--------+
+| NEWCOL |
++--------+
+| 4      |
++--------+
+DB_TESTPROMPT> +--------+
+| NEWCOL |
++--------+
+| 4      |
++--------+
+DB_TESTPROMPT> Selection has failed: fail to resolve 'd'
+DB_TESTPROMPT> Selection has failed: 'b' does not exist
+DB_TESTPROMPT> Where clause try to reference tables which are not specified
+DB_TESTPROMPT> Insertion has failed: Types are not matched
+DB_TESTPROMPT> 2 row(s) are deleted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> 'b' table is created
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> +---+---+---+
+| C | D | E |
++---+---+---+
++---+---+---+
+DB_TESTPROMPT> +---+------+------------+
+| C | D    | E          |
++---+------+------------+
+| 3 | aaaa | 2019-05-14 |
+| 4 | bbbb | 2019-05-14 |
++---+------+------------+
+DB_TESTPROMPT> 'c' table is created
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> +------+---+------+
+| D    | C | E    |
++------+---+------+
+| aaaa | 3 | 7    |
+| aaaa | 3 | null |
++------+---+------+
+DB_TESTPROMPT> 1 row(s) are deleted
+DB_TESTPROMPT> +---+------+------------+
+| C | D    | E          |
++---+------+------------+
+| 4 | bbbb | 2019-05-14 |
+| 4 | aaaa | null       |
++---+------+------------+
+DB_TESTPROMPT> +------+------+------+
+| D    | C    | E    |
++------+------+------+
+| null | null | 7    |
+| null | null | null |
++------+------+------+
+DB_TESTPROMPT> +------+------+---+
+| D    | C    | E |
++------+------+---+
+| null | null | 7 |
++------+------+---+
+DB_TESTPROMPT> +------+------+------+
+| D    | C    | E    |
++------+------+------+
+| null | null | 7    |
+| null | null | null |
++------+------+------+
+DB_TESTPROMPT> Where clause try to compare incomparable values
+DB_TESTPROMPT> 1 row(s) are deleted
+DB_TESTPROMPT> Insertion has failed: Referential integrity violation
+DB_TESTPROMPT> 'd' table is created
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> The row is inserted
+DB_TESTPROMPT> 1 row(s) are deleted
+1 row(s) are not deleted due to referential integrity
+DB_TESTPROMPT> 1 row(s) are deleted
+DB_TESTPROMPT> 1 row(s) are deleted
+DB_TESTPROMPT> 

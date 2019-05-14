@@ -6,22 +6,25 @@ import com.sleepycat.je.Database;
 
 public class Relation implements Serializable {
 	private static final long serialVersionUID = 1L;
-	private static String EMPTY_RELATION = "--empty";
+	static final String EMPTY_RELATION = "--empty";
+	static final String RESULT_RELATION = "--result";
 
 	private String tableName;
 	private ArrayList<Attribute> schema;
-	private ArrayList<String> referedTableList;
+	private ArrayList<String> referredTableList;
 	private ArrayList<ArrayList<Value>> records;
 	private ArrayList<String> pKeys;
 	private ArrayList<ForeignKeyConstraint> fKeys;
 
+	// Constructor
 	public Relation(String tableName) {
 		this.tableName = tableName;
 		schema = new ArrayList<Attribute>();
-		referedTableList = new ArrayList<String>();
+		referredTableList = new ArrayList<String>();
 		records = new ArrayList<ArrayList<Value>>();
 	}
 
+	// Getter, Setter and some trivial methods
 	public String getTableName() {
 		return tableName;
 	}
@@ -34,8 +37,8 @@ public class Relation implements Serializable {
 		return schema;
 	}
 
-	public ArrayList<String> getReferedTableList() {
-		return referedTableList;
+	public ArrayList<String> getreferredTableList() {
+		return referredTableList;
 	}
 
 	public ArrayList<ArrayList<Value>> getRecords() {
@@ -106,6 +109,12 @@ public class Relation implements Serializable {
 		return ret;
 	}
 
+	/*
+	 * Creates Relation Schema
+	 * colDefs: column definitions
+	 * primary: primary key constraints (it can be more than one but make error here
+	 * fKeyConstraints: foreign key constraints
+	 */
 	public DBMessage createSchema(Database db, ArrayList<Attribute> colDefs, ArrayList<ArrayList<String>> primary, ArrayList<ForeignKeyConstraint> fKeyConstraints) {
 		DBMessage msg;
 		
@@ -180,6 +189,7 @@ public class Relation implements Serializable {
 		return null;
 	}
 
+	// Check foreign key constraints for one foreign table
 	public DBMessage referenceCheck(Relation foreign, ForeignKeyConstraint elem) {
 		int keySize = elem.foreignKeys.size();
 
@@ -272,7 +282,7 @@ public class Relation implements Serializable {
 		Relation targetRel = Relation.db_search(db, target);
 		if (targetRel == null)
 			return;
-		targetRel.addReferedTableList(tableName);
+		targetRel.addreferredTableList(tableName);
 		Relation.db_replace(db, targetRel);
 	}
 
@@ -280,26 +290,28 @@ public class Relation implements Serializable {
 		Relation targetRel = Relation.db_search(db, target);
 		if (targetRel == null)
 			return;
-		targetRel.delReferedTableList(tableName);
+		targetRel.delreferredTableList(tableName);
 		Relation.db_replace(db, targetRel);
 	}
 
-	void addReferedTableList(String rTable) {
-		if (referedTableList.contains(rTable))
+	void addreferredTableList(String rTable) {
+		if (referredTableList.contains(rTable))
 			return;
-		referedTableList.add(rTable);
+		referredTableList.add(rTable);
 	}
 
-	void delReferedTableList(String rTable) {
-		if (!referedTableList.contains(rTable))
+	void delreferredTableList(String rTable) {
+		if (!referredTableList.contains(rTable))
 			return;
-		referedTableList.remove(rTable);
+		referredTableList.remove(rTable);
 	}
 
+	// Get Reference Count (this method is used for drop table)
 	int getRefCount() {
-		return referedTableList.size();
+		return referredTableList.size();
 	}
 
+	// Remove table name from referring tables
 	public DBMessage dropCleanUp(Database db) {
 		if (getRefCount() > 0) {
 			return new DBMessage(MsgType.DropReferencedTableError, tableName);
@@ -312,6 +324,7 @@ public class Relation implements Serializable {
 		return null;
 	}
 
+	// desc query output
 	public String describe() {
 		String desc = "table_name [" + tableName + "]\n";
 		desc += "-------------------------------------------------\n";
@@ -324,6 +337,7 @@ public class Relation implements Serializable {
 		return desc;
 	}
 
+	// parse insert query
 	private ArrayList<ColValTuple> parseInputValue(ArrayList<String> colList, ArrayList<Value> valList) throws MyException {
 		DBMessage msg;
 		int schemaSize = schema.size();
@@ -354,6 +368,15 @@ public class Relation implements Serializable {
 				throw new MyException(MsgType.InsertTypeMismatchError);
 			}
 			else {
+				// Duplicate column name detection / not in project specification
+				for (int i = 0; i < colList.size(); i++) {
+					for (int j = i + 1; j < colList.size(); j++) {
+						if (colList.get(i).equals(colList.get(j))) {
+							throw new MyException(MsgType.InsertTypeMismatchError);
+						}
+					}
+				}
+				
 				// Column Existence Check
 				ArrayList<String> columnCheck = getColumnList();
 				for (String c : colList) {
@@ -366,7 +389,7 @@ public class Relation implements Serializable {
 					int cListIdx = colList.indexOf(columnCheck.get(i));
 					if (cListIdx < 0) {	// Null check
 						if (!schema.get(i).isNullable()) {
-							throw new MyException(MsgType.InsertTypeMismatchError);
+							throw new MyException(MsgType.InsertColumnNonNullableError, schema.get(i).getName());
 						}
 						retList.get(i).value = new Value();
 					}
@@ -384,6 +407,7 @@ public class Relation implements Serializable {
 		return retList;
 	}
 
+	// Check constraints for insert value tuple
 	private DBMessage insertConstraintCheck(Database db, ArrayList<ColValTuple> cvTuple) {
 		// Primary Key Constraint
 		if (pKeys.size() > 0) {
@@ -432,6 +456,7 @@ public class Relation implements Serializable {
 		return null;
 	}
 
+	// Insert records
 	public DBMessage insertRecord(Database db, ArrayList<String> colList, ArrayList<Value> valList) {
 		DBMessage msg;
 		ArrayList<ColValTuple> cvTuple;
@@ -459,12 +484,14 @@ public class Relation implements Serializable {
 		return null;
 	}
 
+	// Create BooleanExpression class for checking primary key constraints
 	BooleanExpression generatePrimaryCheckExpr(ArrayList<ColValTuple> cvTuple) {
 		ArrayList<ColValTuple> pKeyTuple = ColValTuple.columnFilter(pKeys, cvTuple);
 		
 		return Relation.generateCheckExpr(pKeyTuple);
 	}
 	
+	// Delete query
 	public DBMessage delete(Database db, BooleanExpression where) throws MyException {
 		int deleteCount = 0;
 		int cancelCount = 0;
@@ -498,9 +525,9 @@ public class Relation implements Serializable {
 			if (noViolation) {
 
 				if (pKeys.size() > 0) {
-					for (String refTable : referedTableList) {
+					for (String refTable : referredTableList) {
 						Relation refRel = db_search(db, refTable);
-						refRel.cascadeDeletion(tableName, myPKey);
+						refRel.cascadeDeletion(db, tableName, myPKey);
 					}
 				}
 
@@ -519,7 +546,8 @@ public class Relation implements Serializable {
 		return new DBMessage(MsgType.DeleteResult, deleteCount, cancelCount);
 	}
 	
-	void cascadeDeletion(String dTable, ArrayList<ColValTuple> cvList) {
+	// Cascade Deletion
+	void cascadeDeletion(Database db, String dTable, ArrayList<ColValTuple> cvList) {
 		for (ForeignKeyConstraint fkc : fKeys) {
 			if (fkc.refTable.equals(dTable)) {
 				ArrayList<ColValTuple> myside = ColValTuple.columnFilter(fkc.referingKeys, cvList);
@@ -537,8 +565,10 @@ public class Relation implements Serializable {
 				}
 			}
 		}
+		Relation.db_replace(db, this);
 	}
 	
+	// Check if the record violates integrity constraints
 	boolean checkViolateIntegrity(String dTable, ArrayList<ColValTuple> cvList) {
 		for (ForeignKeyConstraint fkc : fKeys) {
 			if (fkc.refTable.equals(dTable) && !fkc.nullable) {
@@ -565,7 +595,7 @@ public class Relation implements Serializable {
 		}
 		
 		boolean violate;
-		for (String referedTable : referedTableList) {
+		for (String referedTable : referredTableList) {
 			
 			Relation referedRel = db_search(db, referedTable);
 
@@ -589,10 +619,11 @@ public class Relation implements Serializable {
 		return result;
 	}
 	
+	// Select query
 	DBMessage select(ArrayList<Rename> selected, BooleanExpression bxpr) {
-		ArrayList<ArrayList<Value>> searchResult = null;
+		ArrayList<ArrayList<Value>> searchResult = null;	// Result from BooleanExpression.filter
 		ArrayList<Integer> indexList = new ArrayList<Integer>();
-		ArrayList<ArrayList<Value>> selectedResult = null;
+		ArrayList<ArrayList<Value>> selectedResult = null;	// Reorganized searchResult
 		
 		try {
 			if (bxpr == null) {
@@ -610,6 +641,10 @@ public class Relation implements Serializable {
 		return null;
 	}
 	
+	/*
+	 * Select column from filtered result
+	 * Convert from searchResult to selectedResult (column ordering)
+	 */
 	private ArrayList<ArrayList<Value>> selectColumn(ArrayList<Rename> sList, ArrayList<ArrayList<Value>> sResult, ArrayList<Integer> iList) throws MyException {
 		int schemaSize = schema.size();
 
@@ -644,13 +679,19 @@ public class Relation implements Serializable {
 		return result;
 	}
 
+	/*
+	 * Print select query result
+	 * selectList : columns
+	 * 
+	 * This method checks all result and calculate proper box size for each column 
+	 */
 	private void selectPrintResult(ArrayList<Integer> idxList, ArrayList<Rename> selectList, ArrayList<ArrayList<Value>> selectedResult) {
 		ArrayList<String> titleList = new ArrayList<String>();
 
 		Integer[] length = new Integer[idxList.size()];
 
 		for (int i = 0; i < idxList.size(); i++) {
-			length[i] = schema.get(idxList.get(i)).getDefaultLength();
+			length[i] = 1;
 		}
 
 		if (selectList == null) {
@@ -682,6 +723,7 @@ public class Relation implements Serializable {
 		selectRealPrint(titleList, length, selectedResult);
 	}
 
+	// Actual printing method
 	private static void selectRealPrint(ArrayList<String> title, Integer[] length,
 			ArrayList<ArrayList<Value>> searchResult) {
 		int columnNum = title.size();
@@ -737,21 +779,8 @@ public class Relation implements Serializable {
 		
 		return new BooleanExpression(node);
 	}
-	/*
-	public static int lastMatch(String orig, String pattern) {
-		int idx = orig.indexOf(pattern);
-
-		if (idx < 0)
-			return -1;
-
-		if (orig.substring(idx).equals(pattern)) {
-			return idx;
-		} else {
-			return -1;
-		}
-	}
-*/
 	
+	// Select query
 	public static DBMessage selectQuery(Database db, ArrayList<Rename> selected, ArrayList<Rename> tables, BooleanExpression bxpr) {
 		DBMessage msg;
 
@@ -771,6 +800,7 @@ public class Relation implements Serializable {
 		return null;
 	}
 	
+	// Join two relations
 	public static Relation join(Relation r1, String newTable1, Relation r2, String newTable2) {
 
 		Relation result = new Relation("--result");
@@ -830,6 +860,7 @@ public class Relation implements Serializable {
 		return result;
 	}
 
+	// check if table list from select query is valid or not
 	private static DBMessage selectCheckValidTableName(Database db, ArrayList<Rename> tables) {
 		ArrayList<String> newNameDupCheck = new ArrayList<String>();
 
@@ -842,7 +873,6 @@ public class Relation implements Serializable {
 			if (r.newName == null) continue;
 			
 			if (newNameDupCheck.contains(r.newName)) {
-				// TODO return some error
 				return new DBMessage(MsgType.WhereAmbiguousReference);
 			} else {
 				newNameDupCheck.add(r.newName);
@@ -851,6 +881,7 @@ public class Relation implements Serializable {
 		return null;
 	}
 
+	// Generate one big table from select query
 	private static Relation selectJoin(Database db, ArrayList<Rename> tables) {
 		Relation result = new Relation(EMPTY_RELATION);
 		Relation rtemp;
@@ -863,6 +894,7 @@ public class Relation implements Serializable {
 		return result;
 	}
 	
+	// Berkeley DB IO for Relation class
 	public static void db_insert(Database db, Relation r) {
 		DataManager.insert(db, r.getTableName(), DataManager.serialize(r));
 	}

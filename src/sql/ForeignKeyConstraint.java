@@ -9,7 +9,7 @@ public class ForeignKeyConstraint implements Serializable {
 	ArrayList<String> foreignKeys;
 	String refTable;
 	ArrayList<String> referingKeys;
-	boolean nullable = false;
+	boolean nullable = false;		// Pre-calculation for cascade deletion
 	
 	public ForeignKeyConstraint(ArrayList<String> fkey, String table, ArrayList<String> rkey) {
 		foreignKeys = fkey;

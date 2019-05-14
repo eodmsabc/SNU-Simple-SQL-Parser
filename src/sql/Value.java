@@ -86,7 +86,7 @@ public class Value implements Comparable<Value>, Serializable {
 			ret = intVal.toString();
 			break;
 		case TYPE_CHAR:
-			ret = strVal.toString();
+			ret = strVal;
 			break;
 		case TYPE_DATE:
 			ret = dateVal.toString();
